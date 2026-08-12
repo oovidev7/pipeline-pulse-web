@@ -46,7 +46,7 @@ export default function LoginPage() {
           className="login-input"
         />
         {error && <div className="login-error">{error}</div>}
-        <button type="submit" className="btn btn-primary" disabled={loading}>
+        <button type="submit" className="reload" disabled={loading}>
           {loading ? "Checking..." : "Enter"}
         </button>
       </form>

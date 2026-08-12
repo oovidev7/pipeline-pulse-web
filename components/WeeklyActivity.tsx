@@ -4,22 +4,33 @@ interface SlackData {
   previous: any | null;
 }
 
-function Delta({ current, prev, label }: { current: number; prev: number; label: string }) {
+function labelize(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function Tile({ current, prev, label }: { current: number; prev: number; label: string }) {
   const diff = current - prev;
   const isUp = diff > 0;
-  const isFlat = diff === 0;
+  const isDown = diff < 0;
   return (
-    <div className="stat">
-      <div className="value">
+    <div>
+      <p className="hint" style={{ margin: "0 0 2px" }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>
         {current}{" "}
-        {!isFlat && (
-          <span className={`pill ${isUp ? "pill-up" : "pill-down"}`}>
-            {isUp ? "+" : ""}
-            {diff}
+        {diff !== 0 && (
+          <span className={`pill ${isUp ? "pill-context" : "pill-unlinked"}`}>
+            {isUp ? "▲ +" : "▼ "}
+            {Math.abs(diff)}
           </span>
         )}
-      </div>
-      <div className="label">{label}</div>
+      </p>
+      <p className="hint" style={{ margin: "2px 0 0" }}>
+        {isUp ? "up" : isDown ? "down" : "flat"} vs last week
+      </p>
     </div>
   );
 }
@@ -27,23 +38,21 @@ function Delta({ current, prev, label }: { current: number; prev: number; label:
 export default function WeeklyActivity({ slack }: { slack: SlackData | null }) {
   return (
     <div className="card">
-      <h2>Weekly Activity</h2>
+      <div className="section-title">Weekly activity</div>
       {!slack ? (
         <div className="loading-text">Loading...</div>
       ) : !slack.latest ? (
-        <div className="empty-state">
-          No weekly snapshot data found in Slack yet.
-        </div>
+        <div className="empty-state">No weekly snapshot data found in Slack yet.</div>
       ) : (
-        <div className="stat-row">
+        <div className="grid grid-3">
           {Object.entries(slack.latest)
             .filter(([, v]) => typeof v === "number")
             .map(([key, value]) => (
-              <Delta
+              <Tile
                 key={key}
                 current={value as number}
                 prev={(slack.previous?.[key] as number) ?? (value as number)}
-                label={key}
+                label={labelize(key)}
               />
             ))}
         </div>

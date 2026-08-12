@@ -59,18 +59,16 @@ export default function Home() {
   return (
     <div className="page">
       <div className="page-header">
-        <div>
-          <h1>Pipeline Pulse</h1>
-          <p className="subtitle">
-            Sentrum sales dashboard {cachedTime ? `· as of ${cachedTime}` : ""}
-          </p>
-        </div>
+        <p style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>Pipeline Pulse</p>
         <div className="header-actions">
-          <button className="btn" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? "Refreshing..." : "Refresh"}
+          <button className="reload" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
+      <p className="muted" style={{ fontSize: 13, margin: "0 0 1rem" }}>
+        Sentrum sales dashboard {cachedTime ? `· as of ${cachedTime}` : ""}
+      </p>
 
       <div className="section">
         <StageSnapshot stageSnapshot={deals?.stageSnapshot ?? null} />
@@ -90,7 +88,9 @@ export default function Home() {
         <OwnerPerformance ownerPerformance={deals?.ownerPerformance ?? null} />
 
         <div className="card">
-          <h2>New Conversations (last 7 days)</h2>
+          <div className="section-title">
+            New conversations <span className="hint">— last 7 days</span>
+          </div>
           {!deals ? (
             <div className="loading-text">Loading...</div>
           ) : deals.newConversations.length === 0 ? (
@@ -100,7 +100,7 @@ export default function Home() {
               <div className="owner-row" key={c.personId}>
                 <span>{c.name}</span>
                 <span className="call-time">
-                  {new Date(c.firstEmailInteraction).toLocaleDateString()}
+                  {new Date(c.firstEmailInteraction).toLocaleDateString("en-GB")}
                 </span>
               </div>
             ))
@@ -111,12 +111,12 @@ export default function Home() {
       {contactActivity?.followUpsNeeded?.length > 0 && (
         <div className="section">
           <div className="card">
-            <h2>Follow-ups Needed</h2>
+            <div className="section-title">Follow-ups needed</div>
             {contactActivity.followUpsNeeded.map((f: any) => (
               <div className="owner-row" key={f.dealId}>
                 <span>{f.dealName}</span>
                 <span className="call-time">
-                  Last sent {f.lastContactDate ? new Date(f.lastContactDate).toLocaleDateString() : "—"}
+                  Last sent {f.lastContactDate ? new Date(f.lastContactDate).toLocaleDateString("en-GB") : "—"}
                 </span>
               </div>
             ))}

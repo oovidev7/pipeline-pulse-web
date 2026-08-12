@@ -33,40 +33,55 @@ export default function AtRiskList({
 
   return (
     <div className="card">
-      <h2>At-Risk Deals</h2>
+      <div className="section-title">
+        Focus this week <span className="hint">— at-risk deals worth reviewing</span>
+      </div>
       {!atRiskDeals ? (
         <div className="loading-text">Loading...</div>
       ) : atRiskDeals.length === 0 ? (
         <div className="empty-state">No at-risk deals right now.</div>
       ) : (
-        atRiskDeals.map(({ deal, reasons }) => (
-          <div className="deal-card" key={deal.id}>
-            <div className="deal-name">{deal.name}</div>
-            <div className="deal-meta">
-              {deal.stage} · {deal.ownerName || "Unassigned"}
-            </div>
-            <ul className="reason-list">
-              {reasons.map((r) => (
-                <li key={r.code}>{r.label}</li>
-              ))}
-            </ul>
-            <button
-              className="btn btn-small"
-              onClick={() => handleSuggest(deal.id)}
-              disabled={loadingIds[deal.id]}
-            >
-              {loadingIds[deal.id] ? "Thinking..." : "Suggest next action"}
-            </button>
-            {errors[deal.id] && (
-              <div className="login-error" style={{ marginTop: 8 }}>
-                {errors[deal.id]}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {atRiskDeals.map(({ deal, reasons }) => {
+            return (
+              <div className="deal-card" key={deal.id}>
+                <div className="deal-card-header">
+                  <p className="deal-name">{deal.name}</p>
+                  <p className="deal-meta">
+                    {deal.stage} · {deal.ownerName || "Unassigned"}
+                  </p>
+                </div>
+                <ul className="reason-list">
+                  {reasons.map((r) => (
+                    <li key={r.code}>&#9888; {r.label}</li>
+                  ))}
+                </ul>
+                <div style={{ marginTop: 6 }}>
+                  {suggestions[deal.id] ? (
+                    <div className="suggestion-box">
+                      <strong style={{ fontWeight: 500 }}>Try this next:</strong> {suggestions[deal.id]}
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        className="reload small"
+                        onClick={() => handleSuggest(deal.id)}
+                        disabled={loadingIds[deal.id]}
+                      >
+                        {loadingIds[deal.id] ? "Thinking…" : "Suggest next action"}
+                      </button>
+                      {errors[deal.id] && (
+                        <span className="hint" style={{ marginLeft: 8, color: "var(--danger)" }}>
+                          {errors[deal.id]}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            )}
-            {suggestions[deal.id] && (
-              <div className="suggestion-box">{suggestions[deal.id]}</div>
-            )}
-          </div>
-        ))
+            );
+          })}
+        </div>
       )}
     </div>
   );

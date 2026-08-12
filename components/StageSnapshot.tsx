@@ -1,5 +1,15 @@
 import { STAGES } from "@/lib/types";
 
+const STAGE_LABELS: Record<string, string> = {
+  Prospecting: "Prospecting",
+  "Demo / discovery": "Demo",
+  Qualified: "Qualified",
+  Trialling: "Trialling",
+  Proposal: "Proposal",
+  "Won 🎉": "Won",
+  Lost: "Lost",
+};
+
 export default function StageSnapshot({
   stageSnapshot,
 }: {
@@ -7,17 +17,24 @@ export default function StageSnapshot({
 }) {
   return (
     <div className="card">
-      <h2>Stage Snapshot</h2>
+      <div className="section-title">
+        Stage snapshot
+      </div>
       {!stageSnapshot ? (
         <div className="loading-text">Loading...</div>
       ) : (
         <div className="stage-grid">
-          {STAGES.map((stage) => (
-            <div className="stage-tile" key={stage}>
-              <div className="count">{stageSnapshot[stage] || 0}</div>
-              <div className="label">{stage}</div>
-            </div>
-          ))}
+          {STAGES.map((stage) => {
+            const isWon = stage.startsWith("Won");
+            const isLost = stage === "Lost";
+            const tileClass = isWon ? "stage-tile won" : isLost ? "stage-tile lost" : "stage-tile";
+            return (
+              <div className={tileClass} key={stage}>
+                <p className="label">{STAGE_LABELS[stage] || stage}</p>
+                <p className="count">{stageSnapshot[stage] || 0}</p>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,11 +1,8 @@
 import { DealsApiResponse } from "@/lib/types";
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
+function fmtGBP(n: number): string {
+  if (!n) return "£0";
+  return "£" + Math.round(n).toLocaleString("en-GB");
 }
 
 export default function PipelineHealth({
@@ -15,26 +12,32 @@ export default function PipelineHealth({
 }) {
   return (
     <div className="card">
-      <h2>Pipeline Health</h2>
+      <div className="section-title">Pipeline health</div>
       {!pipelineHealth ? (
         <div className="loading-text">Loading...</div>
       ) : (
         <div className="stat-row">
           <div className="stat">
-            <div className="value">{Math.round(pipelineHealth.winRate * 100)}%</div>
-            <div className="label">Win rate</div>
+            <p className="label">Open value</p>
+            <p className="value">{fmtGBP(pipelineHealth.openPipelineValue)}</p>
+            <p className="sub">{pipelineHealth.openCount} deals open</p>
           </div>
           <div className="stat">
-            <div className="value">{formatCurrency(pipelineHealth.openPipelineValue)}</div>
-            <div className="label">Open pipeline value</div>
+            <p className="label">Win rate</p>
+            <p className="value">{Math.round(pipelineHealth.winRate * 100)}%</p>
+            <p className="sub">
+              {pipelineHealth.wonCount} won / {pipelineHealth.wonCount + pipelineHealth.lostCount} closed
+            </p>
           </div>
           <div className="stat">
-            <div className="value">{pipelineHealth.openCount}</div>
-            <div className="label">Open deals</div>
+            <p className="label">Lost</p>
+            <p className="value">{pipelineHealth.lostCount}</p>
+            <p className="sub">all-time</p>
           </div>
           <div className="stat">
-            <div className="value">{pipelineHealth.stalledDealsCount}</div>
-            <div className="label">Stalled (14+ days)</div>
+            <p className="label">Stalled</p>
+            <p className="value">{pipelineHealth.stalledDealsCount}</p>
+            <p className="sub">14+ days, no next call</p>
           </div>
         </div>
       )}

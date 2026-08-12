@@ -19,13 +19,13 @@ interface CalendarData {
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return "All day";
+  if (!iso) return "time TBC";
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    return new Date(iso).toLocaleString("en-GB", {
       weekday: "short",
-      month: "short",
       day: "numeric",
-      hour: "numeric",
+      month: "short",
+      hour: "2-digit",
       minute: "2-digit",
     });
   } catch {
@@ -34,44 +34,44 @@ function formatTime(iso: string | null): string {
 }
 
 export default function UpcomingCalls({ calendar }: { calendar: CalendarData | null }) {
+  const allCalls = calendar
+    ? [
+        ...calendar.matched.map((c) => ({ ...c, matched: true as const })),
+        ...calendar.unmatched.map((c) => ({ ...c, matched: false as const })),
+      ]
+    : [];
+
   return (
     <div className="card">
-      <h2>Upcoming Calls (next 7 days)</h2>
+      <div className="section-title">
+        Upcoming calls <span className="hint">— next 7 days</span>
+      </div>
       {!calendar ? (
         <div className="loading-text">Loading...</div>
+      ) : allCalls.length === 0 ? (
+        <div className="empty-state">No external calls found on either calendar in the next 7 days.</div>
       ) : (
-        <>
-          <div style={{ marginBottom: 16 }}>
-            <div className="deal-meta" style={{ marginBottom: 6, fontWeight: 600 }}>
-              Matched to deals
-            </div>
-            {calendar.matched.length === 0 ? (
-              <div className="empty-state">No matched calls.</div>
-            ) : (
-              calendar.matched.map((c) => (
-                <div className="call-item" key={c.id}>
-                  <span>{c.dealName} — {c.summary}</span>
-                  <span className="call-time">{formatTime(c.start)}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {allCalls.map((c) => (
+            <div className={`call-item${!c.matched ? " unmatched" : ""}`} key={c.id}>
+              <div className="call-item-header">
+                <div style={{ minWidth: 0 }}>
+                  <p className="call-title">
+                    {c.summary}
+                    {c.matched && (c as MatchedCall).dealName && (
+                      <span className="hint"> · {(c as MatchedCall).dealName}</span>
+                    )}
+                    {!c.matched && <span className="pill pill-unlinked" style={{ marginLeft: 6 }}>not linked to a deal</span>}
+                  </p>
+                  <p className="call-time">
+                    {formatTime(c.start)}
+                    {!c.matched && c.attendeeEmails.length > 0 ? ` · ${c.attendeeEmails.join(", ")}` : ""}
+                  </p>
                 </div>
-              ))
-            )}
-          </div>
-          <div>
-            <div className="deal-meta" style={{ marginBottom: 6, fontWeight: 600 }}>
-              Unmatched
+              </div>
             </div>
-            {calendar.unmatched.length === 0 ? (
-              <div className="empty-state">No unmatched calls.</div>
-            ) : (
-              calendar.unmatched.map((c) => (
-                <div className="call-item" key={c.id}>
-                  <span>{c.summary}</span>
-                  <span className="call-time">{formatTime(c.start)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   );

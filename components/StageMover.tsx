@@ -56,9 +56,12 @@ export default function StageMover({
 
   return (
     <div className="stage-mover">
-      <span className="hint">Stage:</span>
+      <span className="hint" title="Move this deal to a different pipeline stage in Attio">
+        Move stage:
+      </span>
       <select
         className="stage-select"
+        title="Pick the stage to move this deal to, then press Move. You'll be asked to confirm."
         value={selected}
         disabled={writing}
         onChange={(e) => {

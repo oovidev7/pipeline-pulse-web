@@ -121,34 +121,45 @@ export default function useDealActions(): {
     <>
       {suggestions[deal.id] && (
         <div className="suggestion-box" style={{ marginTop: 10 }}>
-          <strong style={{ fontWeight: 500 }}>Try this next:</strong>{" "}
+          <strong style={{ fontWeight: 500 }}>Suggested next step</strong>
+          <span className="hint"> — AI, not saved anywhere</span>
+          <br />
           {suggestions[deal.id]}
         </div>
       )}
 
+      <p className="note-label">
+        Working note{" "}
+        <span className="hint">
+          — draft it yourself or with AI, then save it to Attio or turn it into a task
+        </span>
+      </p>
       <textarea
         className="stall-note-box"
         value={noteFor(deal)}
-        placeholder="Why is this deal at risk, and what's the next step? Draft with AI, then edit before saving."
+        placeholder="Why is this deal at risk, and what's the next step?"
         onChange={(e) => setNotes((n) => ({ ...n, [deal.id]: e.target.value }))}
       />
       <div className="note-actions">
         <button
           className="reload small"
+          title="Ask AI for one concrete next step for this deal. Shown below — nothing is saved."
           onClick={() => handleSuggest(deal.id)}
           disabled={loadingIds[deal.id]}
         >
-          {loadingIds[deal.id] ? "Thinking…" : "Suggest next action"}
+          {loadingIds[deal.id] ? "Thinking…" : "Suggest a next step"}
         </button>
         <button
           className="reload small"
+          title="Fill the note box above with an AI-written draft. You can edit it before saving — nothing is saved yet."
           onClick={() => handleDraft(deal.id)}
           disabled={drafting[deal.id]}
         >
-          {drafting[deal.id] ? "Drafting…" : "Draft note with AI"}
+          {drafting[deal.id] ? "Drafting…" : "Draft the note for me"}
         </button>
         <button
           className="reload small"
+          title="Save the note above to this deal's stall_notes field in Attio. Replaces whatever is there."
           disabled={!noteFor(deal).trim()}
           onClick={() =>
             setPending({
@@ -159,10 +170,11 @@ export default function useDealActions(): {
             })
           }
         >
-          Save note
+          Save to Attio
         </button>
         <button
           className="reload small"
+          title="Create an Attio task from the note above, assigned to the deal owner, due in 3 days."
           disabled={!noteFor(deal).trim()}
           onClick={() =>
             setPending({
@@ -181,6 +193,11 @@ export default function useDealActions(): {
           </span>
         )}
       </div>
+      {!noteFor(deal).trim() && (
+        <p className="note-help">
+          Saving is disabled until the note has something in it.
+        </p>
+      )}
     </>
   );
 

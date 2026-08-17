@@ -48,9 +48,30 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
   const add = (label: string, weight: number, kind: RiskFactor["kind"] = "risk") =>
     factors.push({ label, weight, kind });
 
-  // Contact depth — with nobody linked, nothing else can move.
-  if (deal.personIds.length === 0) add("no contacts linked", 20);
-  else if (deal.personIds.length === 1) add("single-threaded", 12);
+  // Contact depth, measured by who we have actually reached rather than who we
+  // know of. A company card can list a dozen names nobody has ever spoken to,
+  // so counting known contacts would mark those deals as well-threaded.
+  const known = deal.personIds.length;
+  const engaged = deal.engagedContactCount;
+  if (known === 0) {
+    add("no contacts linked", 20);
+  } else if (engaged === 0) {
+    // Never reached anyone: a qualification problem, not a nurture problem.
+    add(known === 1 ? "never reached" : `never reached any of ${known}`, 18);
+  } else if (engaged === 1) {
+    add(known > 1 ? `single-threaded (1 of ${known} reached)` : "single-threaded", 12);
+  }
+
+  // A relationship that existed and cooled is a better re-engagement bet than
+  // one that never started, so warmth lowers the score rather than raising it.
+  if (engaged > 0) {
+    const strength = deal.bestConnectionStrength;
+    if (strength === "Strong" || strength === "Very strong") {
+      add(`${strength.toLowerCase()} relationship`, -8, "opportunity");
+    } else if (strength === "Good") {
+      add("good relationship", -4, "opportunity");
+    }
+  }
 
   // Calls. A lapsed next_call is worse than none: momentum existed and was lost.
   const nextCallDays = deal.nextCall ? daysSince(deal.nextCall) : null;
@@ -61,12 +82,24 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
     else if (!deal.nextCall) add("no call booked", 12);
   }
 
-  // Email momentum.
-  const quietDays = daysSince(inputs.lastContactDate);
-  if (quietDays === null) add("no email history", 12);
-  else if (quietDays > 14) add(`quiet ${quietDays}d`, 12);
-  else if (inputs.direction === "ours" && quietDays > 7)
+  // Email momentum. Gmail is the live signal but only covers the primary
+  // contact; Attio's per-person interaction log is the fallback and is what
+  // separates deals the mailbox search can't see.
+  const gmailQuiet = daysSince(inputs.lastContactDate);
+  const attioQuiet = daysSince(deal.lastPersonInteraction);
+  const quietDays =
+    gmailQuiet === null ? attioQuiet : attioQuiet === null ? gmailQuiet : Math.min(gmailQuiet, attioQuiet);
+
+  if (quietDays === null) {
+    // Nothing anywhere — only meaningful once we know someone was reachable.
+    add(engaged > 0 ? "no email history" : "never contacted", 12);
+  } else if (quietDays > 90) {
+    add(`cold ${Math.round(quietDays / 30)}mo`, 14);
+  } else if (quietDays > 14) {
+    add(`quiet ${quietDays}d`, 12);
+  } else if (inputs.direction === "ours" && quietDays > 7) {
     add(`awaiting reply ${quietDays}d`, 10);
+  }
 
   // Velocity vs. the stage's own history. A median from fewer than 3
   // advancing deals is noise, not a benchmark — skip it below that.

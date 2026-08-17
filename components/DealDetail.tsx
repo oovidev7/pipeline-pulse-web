@@ -182,11 +182,22 @@ export default function DealDetail({
           source={deal.contactsViaCompany ? "Attio · via company card" : "Attio"}
           muted={deal.personIds.length === 0}
         >
-          {deal.personIds.length === 0
-            ? "None — nobody linked to the deal or its company"
-            : deal.personIds.length === 1
-            ? "1 contact · single-threaded"
-            : `${deal.personIds.length} contacts`}
+          {deal.personIds.length === 0 ? (
+            "None — nobody linked to the deal or its company"
+          ) : (
+            <>
+              {deal.personIds.length} known ·{" "}
+              <strong style={{ fontWeight: 500 }}>
+                {deal.engagedContactCount} reached
+              </strong>
+              {deal.engagedContactCount === 0 && (
+                <span className="overdue-date"> · nobody has replied</span>
+              )}
+              {deal.bestConnectionStrength && (
+                <span className="hint"> · {deal.bestConnectionStrength} connection</span>
+              )}
+            </>
+          )}
         </Fact>
 
         <Fact label="Open tasks" source="Attio" muted={tasks.length === 0}>

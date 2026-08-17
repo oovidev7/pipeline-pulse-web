@@ -40,6 +40,16 @@ export interface DealRecord {
    * resolved through the company card instead — this workspace's convention.
    */
   contactsViaCompany: boolean;
+  /**
+   * Contacts Attio has logged an actual email exchange with. Distinguishes
+   * people we *know of* from people we have genuinely reached — a company card
+   * can list a dozen names nobody has ever spoken to.
+   */
+  engagedContactCount: number;
+  /** Most recent per-person email interaction across this deal's contacts. */
+  lastPersonInteraction: string | null;
+  /** Best connection strength across this deal's contacts, if Attio scored any. */
+  bestConnectionStrength: string | null;
   /** Stages this deal has passed through, oldest first, with time spent in each. */
   stageJourney: StageJourneyStep[];
 }
@@ -73,6 +83,10 @@ export interface PersonRecord {
   /** The company card this person belongs to — where contacts live in this workspace. */
   companyId: string | null;
   firstEmailInteraction: string | null;
+  /** Attio's own record of the last email exchanged with this person. */
+  lastEmailInteraction: string | null;
+  /** Attio's relationship strength: "Very weak" … "Very strong", or null. */
+  connectionStrength: string | null;
   strongestConnectionUserId: string | null;
 }
 

@@ -132,8 +132,28 @@ function normalizeDeal(record: any): DealRecord {
     associatedCompanyId: getReferencedIds(record, "associated_company")[0] ?? null,
     companyDomain: null,
     contactsViaCompany: false,
+    engagedContactCount: 0,
+    lastPersonInteraction: null,
+    bestConnectionStrength: null,
     stageJourney: [],
   };
+}
+
+/** Attio's connection-strength ladder, weakest first. */
+const CONNECTION_STRENGTH_ORDER = [
+  "Very weak",
+  "Weak",
+  "Good",
+  "Strong",
+  "Very strong",
+];
+
+function strongerOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return CONNECTION_STRENGTH_ORDER.indexOf(a) >= CONNECTION_STRENGTH_ORDER.indexOf(b)
+    ? a
+    : b;
 }
 
 /** Company id → primary email domain, from the companies object's `domains`. */
@@ -188,6 +208,11 @@ function normalizePerson(record: any): PersonRecord {
     email,
     companyId: getReferencedIds(record, "company")[0] ?? null,
     firstEmailInteraction: getAttrDate(record, "first_email_interaction"),
+    // Interaction attributes carry `interacted_at` rather than `value`.
+    lastEmailInteraction:
+      getAttrValue(record, "last_email_interaction")?.interacted_at ?? null,
+    connectionStrength:
+      getAttrValue(record, "strongest_connection_strength")?.option?.title ?? null,
     strongestConnectionUserId:
       strongest?.workspace_membership_id || strongest?.referenced_actor_id || null,
   };
@@ -286,15 +311,36 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
       : [];
     const contactsViaCompany = d.personIds.length === 0 && companyPeople.length > 0;
     const personIds = contactsViaCompany ? companyPeople.map((p) => p.id) : d.personIds;
-    const emails = personIds
-      .map((pid) => peopleById.get(pid)?.email)
+    const contacts = personIds
+      .map((pid) => peopleById.get(pid))
+      .filter((p): p is PersonRecord => Boolean(p));
+    const emails = contacts
+      .map((p) => p.email)
       .filter((e): e is string => Boolean(e));
+
+    // Engagement, from Attio's own interaction log — no extra API calls.
+    const engaged = contacts.filter((p) => Boolean(p.lastEmailInteraction));
+    const lastPersonInteraction = engaged.reduce<string | null>(
+      (latest, p) =>
+        !latest || (p.lastEmailInteraction as string) > latest
+          ? (p.lastEmailInteraction as string)
+          : latest,
+      null
+    );
+    const bestConnectionStrength = contacts.reduce<string | null>(
+      (best, p) => strongerOf(best, p.connectionStrength),
+      null
+    );
+
     const owner = members.find((m) => m.id === d.ownerId);
     return {
       ...d,
       personIds,
       personEmails: emails,
       contactsViaCompany,
+      engagedContactCount: engaged.length,
+      lastPersonInteraction,
+      bestConnectionStrength,
       ownerName: owner?.name || null,
       companyDomain: d.associatedCompanyId
         ? companyDomains.get(d.associatedCompanyId) ?? null

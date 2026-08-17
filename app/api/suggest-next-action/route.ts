@@ -65,9 +65,19 @@ export async function POST(req: NextRequest) {
   }
 
   let dealId: string | undefined;
+  // "action" returns a suggested next step; "stall_note" drafts an editable
+  // note explaining why the deal stalled; "outreach_note" drafts an outreach
+  // angle built around a fresh market signal. Both note modes are editable
+  // drafts destined for the deal's stall_notes field.
+  let mode: "action" | "stall_note" | "outreach_note" = "action";
+  let signal: { signal?: string; why_it_matters?: string; source_date?: string } | null =
+    null;
   try {
     const body = await req.json();
     dealId = body?.dealId;
+    if (body?.mode === "stall_note") mode = "stall_note";
+    if (body?.mode === "outreach_note") mode = "outreach_note";
+    if (body?.signal && typeof body.signal === "object") signal = body.signal;
   } catch {
     // ignore
   }
@@ -134,7 +144,11 @@ Risk flags: ${riskLabels.length > 0 ? riskLabels.join("; ") : "none"}
 Last email contact date: ${lastContactDate || "unknown"}
 Last email direction: ${direction || "unknown"}
 Last email snippet: ${contactSnippet || "not available"}
-`.trim();
+${
+  signal
+    ? `\nFresh market signal for this club (from weekly research, dated ${signal.source_date || "recently"}): ${signal.signal || ""}\nWhy it matters: ${signal.why_it_matters || ""}`
+    : ""
+}`.trim();
 
     const prompt = `
 You are a sales assistant helping a rep at Sentrum (a company selling to football/soccer clubs) decide the single best next action on an at-risk deal.
@@ -147,7 +161,13 @@ Relevant tactics based on this deal's risk factors:
 
 ${tacticBlocks || "No specific playbook tactic matched; give general best-practice advice for re-engaging a stalled B2B sales deal."}
 
-Based on all of the above, give ONE concrete, specific, actionable suggested next step the rep should take today. Write it as a short paragraph (3-5 sentences max) in plain text, no markdown, no bullet points. Be specific about *what* to say or do, not just "follow up."
+${
+      mode === "stall_note"
+        ? `This note gets saved onto the deal record in the CRM for the team to read later, so write it as a factual internal note, not as advice addressed to the rep. In 2-3 sentences of plain text (no markdown, no bullets), state what appears to have stalled this deal based only on the data above, and what the next step should be. If the data does not show why it stalled, say that plainly rather than speculating. Do not open with a greeting or a preamble.`
+        : mode === "outreach_note"
+        ? `This note gets saved onto the deal record in the CRM as the agreed next step. In 2-3 sentences of plain text (no markdown, no bullets), state how to use the market signal above as the reason to reach out now: who to contact given what's known, and what angle the signal gives. Ground every specific in the data provided — if the signal names a role or event, use it; do not invent names or facts. Do not open with a greeting or a preamble.`
+        : `Based on all of the above, give ONE concrete, specific, actionable suggested next step the rep should take today. Write it as a short paragraph (3-5 sentences max) in plain text, no markdown, no bullet points. Be specific about *what* to say or do, not just "follow up."`
+    }
 `.trim();
 
     const anthropic = new Anthropic({ apiKey });
@@ -160,7 +180,7 @@ Based on all of the above, give ONE concrete, specific, actionable suggested nex
     const textBlock = response.content.find((b) => b.type === "text");
     const suggestion = textBlock && "text" in textBlock ? textBlock.text : "No suggestion generated.";
 
-    return NextResponse.json({ dealId, suggestion });
+    return NextResponse.json({ dealId, mode, suggestion });
   } catch (err: any) {
     console.error("[/api/suggest-next-action] error", err);
     return NextResponse.json(

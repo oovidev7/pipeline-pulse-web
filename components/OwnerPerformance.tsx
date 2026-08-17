@@ -7,13 +7,17 @@ function fmtGBP(n: number): string {
 
 export default function OwnerPerformance({
   ownerPerformance,
+  error,
 }: {
   ownerPerformance: DealsApiResponse["ownerPerformance"] | null;
+  error?: string | null;
 }) {
   return (
     <div className="card">
       <div className="section-title">Owner performance</div>
-      {!ownerPerformance ? (
+      {error ? (
+        <div className="error-state">{error}</div>
+      ) : !ownerPerformance ? (
         <div className="loading-text">Loading...</div>
       ) : ownerPerformance.length === 0 ? (
         <div className="empty-state">No owner data available.</div>

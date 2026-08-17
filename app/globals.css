@@ -151,12 +151,23 @@ table.simple td {
   color: var(--warn);
 }
 
+.pill-up {
+  background: var(--won-bg);
+  color: var(--won-fg);
+}
+
+.pill-down {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 button.wk {
   border: 0.5px solid #b4b2a9;
   background: #fff;
   border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
 }
 
@@ -198,6 +209,23 @@ button.reload.small {
   padding: 1rem;
   background: var(--tile-bg);
   color: var(--text);
+  border: 2px solid transparent;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.stage-tile.clickable {
+  cursor: pointer;
+}
+
+.stage-tile.clickable:hover {
+  border-color: #cfcdc2;
+}
+
+.stage-tile.active {
+  border-color: var(--accent);
 }
 
 .stage-tile.won {
@@ -258,6 +286,209 @@ button.reload.small {
   margin: 2px 0 0;
 }
 
+/* Pipeline movement — tiles double as filters into the deals behind them. */
+.movement-tile {
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* An empty bucket is still a real reading — dim it enough to recede, not
+   enough to look broken or unloaded. */
+.movement-tile:disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.movement-tile-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--hint);
+  margin-top: 1px;
+}
+
+.movement-summary {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+
+.movement-tile:not(:disabled):hover {
+  border-color: #cfcdc2;
+}
+
+.movement-tile.active {
+  border-color: var(--accent);
+}
+
+.movement-list {
+  border-top: 0.5px solid var(--border);
+  margin-top: 14px;
+  padding-top: 10px;
+}
+
+.movement-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 13px;
+}
+
+.movement-row:last-child {
+  border-bottom: none;
+}
+
+.stage-path {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stage-arrow.up {
+  color: var(--won-fg);
+  font-weight: 500;
+}
+
+.stage-arrow.down {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.stage-arrow.sideways {
+  color: var(--hint);
+}
+
+.movement-net {
+  border-top: 0.5px solid var(--border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.movement-net-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.movement-net-item {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.movement-net-item strong {
+  font-weight: 500;
+}
+
+.movement-net-item strong.up {
+  color: var(--won-fg);
+}
+
+.movement-net-item strong.down {
+  color: var(--danger);
+}
+
+/* Coverage vs target — the headline read on whether the number gets hit. */
+.coverage {
+  background: linear-gradient(180deg, #fbfaf7 0%, var(--card-bg) 100%);
+}
+
+.coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.coverage-track {
+  background: var(--tile-bg);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.coverage-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.coverage-fill.ok {
+  background: #3f7a34;
+}
+
+.coverage-fill.short {
+  background: var(--danger);
+}
+
+.coverage-verdict {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+
+.coverage-verdict strong {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.coverage-verdict strong.danger {
+  color: var(--danger);
+}
+
+/* Open value by stage — a single stacked bar reads faster than five numbers. */
+.stage-value {
+  border-top: 0.5px solid var(--border);
+  padding-top: 12px;
+}
+
+.stage-value-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--tile-bg);
+}
+
+.stage-value-seg {
+  display: block;
+  height: 100%;
+}
+
+.stage-value-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+}
+
+.stage-value-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stage-value-item strong {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.stage-value-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
 .progress-track {
   background: var(--tile-bg);
   border-radius: 999px;
@@ -302,6 +533,13 @@ button.reload.small {
   margin: 0;
 }
 
+.deal-value {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+}
+
 .reason-list {
   list-style: none;
   padding: 0;
@@ -320,6 +558,56 @@ button.reload.small {
   margin: 2px 0 0 14px;
 }
 
+/* Market signals + call briefs — prose-heavy, so they need line-height the
+   metric cards don't. */
+.signal-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+  color: var(--text);
+}
+
+.signal-why {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.signal-why strong {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.signal-footnote {
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+  color: var(--hint);
+}
+
+.signal-footnote strong {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.signal-source {
+  font-size: 11.5px;
+  color: #185fa5;
+  text-decoration: none;
+}
+
+.signal-source:hover {
+  text-decoration: underline;
+}
+
+.deal-card.past-call,
+.call-item.past-call {
+  opacity: 0.62;
+}
+
 .suggestion-box {
   margin-top: 6px;
   background: var(--accent-soft);
@@ -336,11 +624,45 @@ button.reload.small {
   padding: 4px 0;
 }
 
+.error-state {
+  background: var(--danger-soft);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 8px 10px;
+}
+
 /* Upcoming calls / owner performance rows */
 .call-item {
   border: 0.5px solid var(--border);
   border-radius: 8px;
   padding: 0.6rem 0.9rem;
+}
+
+/* Task rows use a left accent rather than a filled background — with 20+ overdue
+   tasks a full red fill turns the whole card into one unreadable block. */
+.task-item {
+  border: 0.5px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+}
+
+.task-item.overdue {
+  border-left-color: var(--danger);
+}
+
+.overdue-date {
+  color: var(--danger);
+}
+
+.task-link {
+  text-decoration: none;
+}
+
+.task-link:hover {
+  text-decoration: underline;
 }
 
 .call-item-header {
@@ -436,4 +758,342 @@ button.reload.small {
 
 .login-card button.reload {
   width: 100%;
+}
+
+/* Confirmation shown before any write to the live Attio workspace. */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(44, 44, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 50;
+}
+
+.confirm-card {
+  background: var(--card-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 8px 32px rgba(44, 44, 42, 0.18);
+}
+
+.confirm-title {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 2px;
+}
+
+.confirm-record {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  margin: 0 0 8px;
+}
+
+.confirm-desc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.confirm-preview {
+  background: var(--tile-bg);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.confirm-warning {
+  font-size: 11.5px;
+  color: var(--danger);
+  margin: 10px 0 0;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+button.reload.confirm-go {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Stall note editor */
+.stall-note-box {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 44px;
+  margin-top: 8px;
+}
+
+.note-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.note-status {
+  font-size: 11.5px;
+  color: var(--hint);
+}
+
+.note-status.ok {
+  color: var(--won-fg);
+}
+
+.note-status.err {
+  color: var(--danger);
+}
+
+/* Expandable deal rows */
+.deal-row-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deal-row-toggle .deal-name,
+.deal-row-toggle .deal-meta {
+  display: block;
+}
+
+.deal-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chevron {
+  color: var(--hint);
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+/* Deal detail panel */
+.deal-detail {
+  border-top: 0.5px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.detail-block {
+  margin-bottom: 12px;
+}
+
+.detail-block:last-of-type {
+  margin-bottom: 0;
+}
+
+.detail-heading {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--hint);
+  margin: 0 0 5px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.fact-label {
+  font-size: 11px;
+  color: var(--hint);
+  margin: 0 0 1px;
+}
+
+.fact-source {
+  font-size: 10px;
+  color: #a8a69d;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.fact-value {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 0;
+}
+
+.fact-value.muted-value {
+  color: var(--hint);
+}
+
+.detail-quote {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.journey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.journey-arrow {
+  color: var(--hint);
+  margin-right: 4px;
+}
+
+.journey-current {
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.detail-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--border);
+}
+
+.source-chip {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--tile-bg);
+  color: #a8a69d;
+  border: 0.5px solid transparent;
+}
+
+.source-chip.on {
+  background: var(--accent-soft);
+  color: #3c3489;
+}
+
+/* Needs attention — risk factor chips and score */
+.factor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.factor-chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.factor-chip.opp {
+  background: var(--accent-soft);
+  color: #3c3489;
+}
+
+.risk-score {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: 6px;
+  padding: 1px 7px;
+}
+
+/* Week in review */
+.review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.review-list li::before {
+  content: "·";
+  margin-right: 8px;
+  color: var(--hint);
+}
+
+.review-list li.review-good::before {
+  content: "▲";
+  font-size: 9px;
+  color: var(--won-fg);
+}
+
+.review-list li.review-bad::before {
+  content: "▼";
+  font-size: 9px;
+  color: var(--danger);
+}
+
+/* Inline stage mover */
+.stage-mover {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--border);
+}
+
+.stage-select {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  border: 0.5px solid #b4b2a9;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: #fff;
 }

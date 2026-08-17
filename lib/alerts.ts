@@ -1,5 +1,5 @@
 // Daily Slack alert digest. Rules agreed 2026-08-14:
-//   1. any open deal with composite risk score >= 50
+//   1. any open deal with composite risk score >= RISK_ALERT_THRESHOLD
 //   2. a fresh market signal matched to a pipeline club
 // Destination: #sentrum-sales, weekday mornings, skipped when nothing fires.
 
@@ -11,7 +11,22 @@ import { cleanSlackText } from "./slack-text";
 import { rankDeals, scoreDeal, ScoredDeal } from "./risk";
 import { CLOSED_STAGES } from "./types";
 
-export const RISK_ALERT_THRESHOLD = 50;
+/**
+ * Score a deal must reach to appear in the morning digest.
+ *
+ * Raised from 50 to 60 on 2026-08-17: at 50 the digest ran to 23 deals, and
+ * the top eight were near-identical (single-threaded, no call, cold, over the
+ * stage median) — a daily message that long reads as backlog, not as alerts.
+ *
+ * Scores cluster tightly around the cut (…61 ×6, 60, 59 ×5…), so the count
+ * swings by several deals for a one-point move. That is tolerable because the
+ * message lists at most `MAX_LISTED` and folds the rest into a count; treat
+ * this as "roughly the worst ten", not a precise gate.
+ */
+export const RISK_ALERT_THRESHOLD = 60;
+
+/** Deals named individually before the rest become "…and N more". */
+const MAX_LISTED = 8;
 /** Signals older than this aren't "fresh" — they refresh each Monday anyway. */
 const SIGNAL_FRESH_DAYS = 4;
 
@@ -99,12 +114,14 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
   const lines: string[] = [];
   if (riskDeals.length > 0) {
     lines.push(`*${riskDeals.length} deal${riskDeals.length > 1 ? "s" : ""} need attention* (risk ≥ ${RISK_ALERT_THRESHOLD}):`);
-    for (const { deal, score, factors } of riskDeals.slice(0, 8)) {
+    for (const { deal, score, factors } of riskDeals.slice(0, MAX_LISTED)) {
       lines.push(
         `• *${deal.name}* — ${deal.stage}, ${deal.ownerName || "Unassigned"}, ${fmtGBP(deal.value)} · score ${score}: ${factors.map((f) => f.label).join(", ")}`
       );
     }
-    if (riskDeals.length > 8) lines.push(`…and ${riskDeals.length - 8} more on the dashboard.`);
+    if (riskDeals.length > MAX_LISTED) {
+      lines.push(`…and ${riskDeals.length - MAX_LISTED} more on the dashboard.`);
+    }
   }
   if (freshSignals.length > 0) {
     if (lines.length > 0) lines.push("");

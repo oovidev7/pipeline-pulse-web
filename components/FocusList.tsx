@@ -7,6 +7,7 @@ import { STAGE_LABELS, fmtCompactGBP } from "./StageSnapshot";
 import DealDetail, { DealContext } from "./DealDetail";
 import StageMover from "./StageMover";
 import useDealActions from "./useDealActions";
+import IntroNote from "./IntroNote";
 
 /** The card is a worklist, not a report — anything past this is scrolling. */
 const SHOW_LIMIT = 5;
@@ -31,12 +32,43 @@ export default function FocusList({
 
   return (
     <div className="card">
-      <div className="section-title">
-        Focus this week{" "}
-        <span className="hint">
-          — ranked by every risk factor across CRM, email, calendar and research
+      <div className="section-title" style={{ justifyContent: "space-between" }}>
+        <span>
+          Focus this week{" "}
+          <span className="hint">
+            — ranked by every risk factor across CRM, email, calendar and research
+          </span>
         </span>
       </div>
+
+      <IntroNote storageKey="pulse-intro-focus" title="New here? Start with this card.">
+        <ul>
+          <li>
+            Every <strong>open deal</strong> is checked against the same risk factors —
+            contacts reached, calls booked, how long it's been quiet, time in stage,
+            overdue tasks, and fresh market signals. The five that need you most are
+            shown here.
+          </li>
+          <li>
+            The <strong>red chips</strong> are the reasons, and the{" "}
+            <strong>number on the right</strong> is just their weights added up. A
+            higher score means more is wrong at once — it isn't a probability or a
+            forecast.
+          </li>
+          <li>
+            <strong>Click any deal</strong> to see everything we know about it: where
+            it's been, the last email, the prep brief, and which sources had nothing
+            to say.
+          </li>
+          <li>
+            Buttons that <strong>change Attio</strong> — saving a note, creating a
+            task, moving a stage — always ask you to confirm first and show exactly
+            what will change. The AI buttons only draft text; nothing is saved until
+            you say so.
+          </li>
+        </ul>
+      </IntroNote>
+
       {error ? (
         <div className="error-state">{error}</div>
       ) : !ranked ? (

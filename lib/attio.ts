@@ -468,6 +468,7 @@ function buildStageMove(
     fromStage,
     toStage,
     path: [...(fromStage ? [fromStage] : []), ...transitions.map((t) => t.stage)],
+    transitions: transitions.map((t) => ({ stage: t.stage, at: t.activeFrom })),
     hops: transitions.length,
     movedAt: last.activeFrom,
     direction,

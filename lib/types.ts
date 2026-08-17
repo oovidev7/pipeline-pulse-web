@@ -158,6 +158,8 @@ export interface StageMove {
   fromStage: string | null;
   toStage: string;
   path: string[];
+  /** Each hop inside the window, with the date it happened. */
+  transitions: { stage: string; at: string }[];
   hops: number;
   movedAt: string;
   direction: "up" | "down" | "sideways";

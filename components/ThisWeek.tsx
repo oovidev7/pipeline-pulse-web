@@ -23,6 +23,14 @@ function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
+/** Short day label for a transition date, e.g. "12 Aug". */
+function fmtDay(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 /**
  * A plain-English read of the week, so the tiles mean something without
  * knowing what a stage is. Zeros are stated explicitly rather than left to be
@@ -119,17 +127,12 @@ export default function ThisWeek({
   // The non-movement lines of the digest, each a sentence with a tone mark.
   const extraLines: { text: string; tone?: "good" | "bad" }[] = [];
   if (typeof stalledCount === "number" && stalledCount > 0) {
-    const prevStalled = prevWeek?.stalled_count;
-    const delta =
-      typeof latestWeek?.stalled_count === "number" && typeof prevStalled === "number"
-        ? latestWeek.stalled_count - prevStalled
-        : null;
+    // Deliberately no week-on-week delta here. The Slack snapshots count
+    // stalled by their own rule (created_at age), which gives a different
+    // number from this live figure — pairing them would attach a delta to a
+    // measure it wasn't derived from.
     extraLines.push({
-      text: `${stalledCount} open deals are stalled — 14+ days in stage, no upcoming call${
-        delta !== null && delta !== 0
-          ? ` (${delta > 0 ? "up" : "down"} ${Math.abs(delta)} vs last week's snapshot)`
-          : ""
-      }.`,
+      text: `${stalledCount} open deals are stalled — 14+ days in stage, no upcoming call.`,
       tone: "bad",
     });
   }
@@ -275,6 +278,14 @@ export default function ThisWeek({
                                   </span>
                                 )}
                                 {STAGE_LABELS[s] || s}
+                                {/* Each hop after the first carries the date it
+                                    happened, so a multi-stage jump is readable. */}
+                                {i > 0 && m.transitions[i - 1] && (
+                                  <span className="hint">
+                                    {" "}
+                                    {fmtDay(m.transitions[i - 1].at)}
+                                  </span>
+                                )}
                               </span>
                             ))
                           ) : (

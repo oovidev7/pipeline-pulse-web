@@ -44,14 +44,9 @@ function clubOf(dealName: string | undefined): string | null {
   return dealName.split(/\s+[-–]\s+/)[0].trim().toLowerCase();
 }
 
-function formatTime(iso: string | null | undefined, allDay?: boolean): string {
-  if (!iso) return "time TBC";
-  const dt = new Date(iso);
-  if (Number.isNaN(dt.getTime())) return "time TBC";
-  const opts: Intl.DateTimeFormatOptions = allDay
-    ? { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }
-    : { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" };
-  return dt.toLocaleString("en-GB", opts) + (allDay ? " · all day" : "");
+function startMs(iso: string | null | undefined): number {
+  const t = iso ? new Date(iso).getTime() : NaN;
+  return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
 }
 
 function isPast(iso: string | null | undefined): boolean {
@@ -60,19 +55,38 @@ function isPast(iso: string | null | undefined): boolean {
   return !Number.isNaN(dt.getTime()) && dt < new Date();
 }
 
-function startMs(iso: string | null | undefined): number {
-  const t = iso ? new Date(iso).getTime() : NaN;
-  return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+/** "Today" / "Tomorrow" / "Thu 20 Aug" — the grouping header. */
+function dayLabel(iso: string | null | undefined): string {
+  if (!iso) return "Date TBC";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "Date TBC";
+  const midnight = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(dt) - midnight(new Date())) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+  return dt.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
-/** A row is either a calendar event (maybe with brief) or a brief-only call. */
+function timeLabel(iso: string | null | undefined, allDay?: boolean): string {
+  if (!iso) return "time TBC";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "time TBC";
+  if (allDay) return "all day";
+  return dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
 interface CallRow {
   key: string;
   title: string;
+  subtitle: string | null;
   start: string | null;
   allDay?: boolean;
-  dealName?: string | null;
-  person?: string | null;
   owners?: string | null;
   linked: boolean;
   externalEmails?: string[];
@@ -82,30 +96,42 @@ interface CallRow {
 
 function BriefBlock({ brief }: { brief: Brief }) {
   const [open, setOpen] = useState(false);
-  const footnotes = brief.footnotes ?? [];
+  const footnotes = (brief.footnotes ?? []).filter((f) => f.detail);
+  const sources = brief.sources ?? [];
+
   return (
-    <div style={{ marginTop: 6 }}>
-      {brief.brief && <p className="signal-text">{cleanSlackText(brief.brief)}</p>}
-      {(footnotes.length > 0 || (brief.sources?.length ?? 0) > 0) && (
-        <button
-          className="reload small"
-          style={{ marginTop: 6 }}
-          onClick={() => setOpen((v) => !v)}
-        >
+    <div className="brief">
+      <p className="brief-label">
+        Prep
+        {brief.mode === "research" && (
+          <span className="hint"> · no history, researched</span>
+        )}
+      </p>
+      {brief.brief && <p className="brief-text">{cleanSlackText(brief.brief)}</p>}
+
+      {(footnotes.length > 0 || sources.length > 0) && (
+        <button className="brief-toggle" onClick={() => setOpen((v) => !v)}>
           {open ? "Hide detail" : `Detail${footnotes.length ? ` · ${footnotes.length}` : ""}`}
         </button>
       )}
+
       {open && (
-        <div style={{ marginTop: 8 }}>
-          {footnotes.map((f, j) => (
-            <p className="signal-footnote" key={j}>
-              {f.source && <strong>{cleanSlackText(f.source)}: </strong>}
+        <div className="brief-detail">
+          {footnotes.map((f, i) => (
+            <p className="brief-note" key={i}>
+              {f.source && (
+                <span className="brief-note-source">{cleanSlackText(f.source)}</span>
+              )}
               {cleanSlackText(f.detail || "")}
             </p>
           ))}
-          {(brief.sources?.length ?? 0) > 0 && (
-            <p className="hint" style={{ margin: "6px 0 0" }}>
-              Sources: {brief.sources!.map(cleanSlackText).join(" · ")}
+          {sources.length > 0 && (
+            <p className="brief-sources">
+              {sources.map((s, i) => (
+                <span className="source-chip on" key={i}>
+                  {cleanSlackText(s)}
+                </span>
+              ))}
             </p>
           )}
         </div>
@@ -130,7 +156,6 @@ export default function CallsWeek({
   const briefs = briefsData?.briefs ?? [];
   const usedBriefs = new Set<Brief>();
 
-  // Calendar events first, each claiming its brief by title or club match.
   const events: CallRow[] = calendar
     ? [
         ...(calendar.matched ?? []).map((c) => ({ ...c, linked: true })),
@@ -144,12 +169,14 @@ export default function CallsWeek({
               (club && (b.club || "").trim().toLowerCase() === club)
           ) ?? null;
         if (brief) usedBriefs.add(brief);
+        // Lead with the club, since that's what the call is actually about.
+        const club_display = c.dealName || brief?.club || null;
         return {
           key: `ev-${c.id}`,
-          title: c.summary,
+          title: club_display || c.summary,
+          subtitle: club_display ? c.summary : null,
           start: c.start,
           allDay: c.allDay,
-          dealName: c.dealName ?? null,
           owners: c.owners?.join(" & ") ?? null,
           linked: c.linked,
           externalEmails: c.externalEmails ?? c.attendeeEmails,
@@ -159,15 +186,13 @@ export default function CallsWeek({
       })
     : [];
 
-  // Briefed calls the calendar can't see (e.g. the other rep's calendar).
   const briefRows: CallRow[] = briefs
     .filter((b) => !usedBriefs.has(b))
     .map((b, i) => ({
       key: `brief-${i}`,
       title: b.club || b.person || cleanSlackText(b.call_title || "Call"),
+      subtitle: b.club && b.person ? b.person : cleanSlackText(b.call_title || ""),
       start: b.start ?? null,
-      dealName: null,
-      person: b.person ?? null,
       owners: b.owner ?? null,
       linked: true,
       brief: b,
@@ -178,6 +203,15 @@ export default function CallsWeek({
   const upcoming = all.filter((r) => !isPast(r.start));
   const past = all.filter((r) => isPast(r.start));
   const visible = showPast ? all : upcoming;
+
+  // Group into day buckets so the week reads as a schedule, not a list.
+  const groups: { label: string; rows: CallRow[] }[] = [];
+  for (const row of visible) {
+    const label = dayLabel(row.start);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.rows.push(row);
+    else groups.push({ label, rows: [row] });
+  }
 
   const loading = !calendar && !briefsData && !calendarError && !briefsError;
 
@@ -218,41 +252,46 @@ export default function CallsWeek({
           .
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {visible.map((r) => {
-            const gone = isPast(r.start);
-            return (
-              <div
-                className={`call-item${!r.linked ? " unmatched" : ""}${gone ? " past-call" : ""}`}
-                key={r.key}
-              >
-                <p className="call-title">
-                  {r.title}
-                  {r.dealName && <span className="hint"> · {r.dealName}</span>}
-                  {!r.linked && (
-                    <span className="pill pill-unlinked" style={{ marginLeft: 6 }}>
-                      not linked to a deal
-                    </span>
-                  )}
-                  {r.briefOnly && (
-                    <span className="pill pill-callweek" style={{ marginLeft: 6 }}>
-                      from briefs — not on the synced calendar
-                    </span>
-                  )}
-                </p>
-                <p className="call-time">
-                  {formatTime(r.start, r.allDay)}
-                  {gone && " · already happened"}
-                  {r.person && ` · ${r.person}`}
-                  {r.owners && ` · ${r.owners}`}
-                  {!r.linked && (r.externalEmails?.length ?? 0) > 0
-                    ? ` · ${r.externalEmails!.join(", ")}`
-                    : ""}
-                </p>
-                {r.brief && <BriefBlock brief={r.brief} />}
-              </div>
-            );
-          })}
+        <div className="call-days">
+          {groups.map((g) => (
+            <div className="call-day" key={g.label}>
+              <p className="call-day-label">{g.label}</p>
+              {g.rows.map((r) => {
+                const gone = isPast(r.start);
+                return (
+                  <div className={`call-row${gone ? " past-call" : ""}`} key={r.key}>
+                    <span className="call-time-col">{timeLabel(r.start, r.allDay)}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p className="call-name">
+                        {r.title}
+                        {!r.linked && (
+                          <span className="pill pill-unlinked" style={{ marginLeft: 6 }}>
+                            no deal
+                          </span>
+                        )}
+                        {r.briefOnly && (
+                          <span className="pill pill-callweek" style={{ marginLeft: 6 }}>
+                            not on synced calendar
+                          </span>
+                        )}
+                      </p>
+                      <p className="call-meta">
+                        {[r.subtitle, r.owners].filter(Boolean).join(" · ")}
+                        {!r.linked && (r.externalEmails?.length ?? 0) > 0
+                          ? `${r.subtitle || r.owners ? " · " : ""}${r.externalEmails!.join(", ")}`
+                          : ""}
+                      </p>
+                      {r.brief ? (
+                        <BriefBlock brief={r.brief} />
+                      ) : (
+                        !gone && <p className="brief-missing">No brief prepared</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -1,19 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getContactActivity } from "@/lib/contact-activity-data";
+import { getOpenTasks } from "@/lib/attio";
 
 export const dynamic = "force-dynamic";
-
-// Compute lives in lib/contact-activity-data.ts, shared with the alerts cron.
 
 export async function GET(req: NextRequest) {
   const forceRefresh = req.nextUrl.searchParams.has("refresh");
   try {
-    const data = await getContactActivity(forceRefresh);
+    const data = await getOpenTasks(forceRefresh);
     return NextResponse.json(data);
   } catch (err: any) {
-    console.error("[/api/contact-activity] error", err);
+    console.error("[/api/tasks] error", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to load Gmail contact activity" },
+      { error: err?.message || "Failed to load tasks from Attio" },
       { status: 500 }
     );
   }

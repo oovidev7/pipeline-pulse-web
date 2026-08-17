@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySignedCookieValue } from "./lib/auth";
 
-// Public paths that don't require the session cookie.
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+// Public paths that don't require the session cookie. The alerts cron
+// authenticates itself with CRON_SECRET inside the route — a cron can't log in.
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/alerts/run"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

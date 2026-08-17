@@ -98,6 +98,11 @@ export default function Home() {
     loadSection<DealsApiResponse>("deals", "/api/deals", setDeals);
   }, [loadSection]);
 
+  /** Refetches tasks after a task write (create, complete, reschedule, delete). */
+  const refreshTasks = useCallback(() => {
+    loadSection<TasksApiResponse>("tasks", "/api/tasks", setTasks);
+  }, [loadSection]);
+
   async function handleRefresh() {
     setRefreshing(true);
     try {
@@ -274,7 +279,14 @@ export default function Home() {
       </div>
 
       <div className="section">
-        <OpenTasks tasks={tasks} error={errors.tasks} />
+        <OpenTasks
+          tasks={tasks}
+          deals={(deals?.deals ?? []).filter(
+            (d) => !CLOSED_STAGES.includes(d.stage as any)
+          )}
+          onChanged={refreshTasks}
+          error={errors.tasks}
+        />
       </div>
 
       <div className="section">
@@ -287,7 +299,8 @@ export default function Home() {
 
       <div className="section">
         <OwnerPerformance
-          ownerPerformance={deals?.ownerPerformance ?? null}
+          deals={deals?.deals ?? null}
+          risk={riskById}
           error={errors.deals}
         />
       </div>

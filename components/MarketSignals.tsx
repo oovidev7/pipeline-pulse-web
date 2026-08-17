@@ -19,6 +19,9 @@ interface MarketSignalsData {
   signals?: Signal[];
 }
 
+/** Signals shown per club before the rest are folded away — beyond two is noise. */
+const MAX_PER_CLUB = 2;
+
 const SCOPE_LABELS: Record<string, string> = {
   named_account: "In pipeline",
   broader_sweep: "New prospect",
@@ -132,7 +135,23 @@ export default function MarketSignals({
     }
   }
 
-  const all = data?.signals ?? [];
+  // Cap per club so one busy account can't crowd out the rest. Industry
+  // signals aren't club-specific, so they're exempt from the cap.
+  const raw = data?.signals ?? [];
+  const perClub = new Map<string, number>();
+  let trimmed = 0;
+  const all = raw.filter((s) => {
+    if ((s.scope || "") === "industry") return true;
+    const key = (s.club || "").trim().toLowerCase();
+    const seen = perClub.get(key) ?? 0;
+    if (seen >= MAX_PER_CLUB) {
+      trimmed += 1;
+      return false;
+    }
+    perClub.set(key, seen + 1);
+    return true;
+  });
+
   const scopes = Array.from(new Set(all.map((s) => s.scope || "other")));
   const visible = scope ? all.filter((s) => (s.scope || "other") === scope) : all;
 
@@ -175,6 +194,13 @@ export default function MarketSignals({
       ) : visible.length === 0 ? (
         <div className="empty-state">No signals in this category.</div>
       ) : (
+        <>
+        {trimmed > 0 && (
+          <p className="hint" style={{ margin: "0 0 10px" }}>
+            Showing at most {MAX_PER_CLUB} per club — {trimmed} further signal
+            {trimmed > 1 ? "s" : ""} hidden.
+          </p>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {visible.map((s, i) => {
             const href = cleanUrl(s.source_url);
@@ -263,6 +289,7 @@ export default function MarketSignals({
             );
           })}
         </div>
+        </>
       )}
 
       {pending && (

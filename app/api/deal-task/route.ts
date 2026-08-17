@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createDealTask, getAttioSnapshot } from "@/lib/attio";
+import { createDealTask, deleteTask, getAttioSnapshot, updateTask } from "@/lib/attio";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +62,73 @@ export async function POST(req: NextRequest) {
     console.error("[/api/deal-task] error", err);
     return NextResponse.json(
       { error: err?.message || "Failed to create task in Attio" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Updates a task's completion or due date. Attio rejects `content` on PATCH,
+ * so task wording cannot be edited once created.
+ */
+export async function PATCH(req: NextRequest) {
+  let taskId: string | undefined;
+  let isCompleted: boolean | undefined;
+  let deadlineAt: string | undefined;
+  try {
+    const body = await req.json();
+    taskId = body?.taskId;
+    if (typeof body?.isCompleted === "boolean") isCompleted = body.isCompleted;
+    if (typeof body?.deadlineAt === "string") deadlineAt = body.deadlineAt;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  if (!taskId) {
+    return NextResponse.json({ error: "taskId is required" }, { status: 400 });
+  }
+  if (isCompleted === undefined && !deadlineAt) {
+    return NextResponse.json(
+      { error: "Provide isCompleted and/or deadlineAt" },
+      { status: 400 }
+    );
+  }
+  if (deadlineAt && Number.isNaN(new Date(deadlineAt).getTime())) {
+    return NextResponse.json({ error: "deadlineAt is not a valid date" }, { status: 400 });
+  }
+
+  try {
+    await updateTask({ taskId, isCompleted, deadlineAt });
+    return NextResponse.json({ taskId, updated: true, isCompleted, deadlineAt });
+  } catch (err: any) {
+    console.error("[/api/deal-task PATCH] error", err);
+    return NextResponse.json(
+      { error: err?.message || "Failed to update task in Attio" },
+      { status: 500 }
+    );
+  }
+}
+
+/** Permanently deletes a task. Irreversible — the UI confirms first. */
+export async function DELETE(req: NextRequest) {
+  let taskId: string | undefined;
+  try {
+    const body = await req.json();
+    taskId = body?.taskId;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  if (!taskId) {
+    return NextResponse.json({ error: "taskId is required" }, { status: 400 });
+  }
+
+  try {
+    await deleteTask(taskId);
+    return NextResponse.json({ taskId, deleted: true });
+  } catch (err: any) {
+    console.error("[/api/deal-task DELETE] error", err);
+    return NextResponse.json(
+      { error: err?.message || "Failed to delete task in Attio" },
       { status: 500 }
     );
   }

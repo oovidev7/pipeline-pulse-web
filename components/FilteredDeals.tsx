@@ -8,6 +8,14 @@ import DealDetail, { DealContext } from "./DealDetail";
 import StageMover from "./StageMover";
 import useDealActions from "./useDealActions";
 
+type SortKey = "value" | "score" | "age";
+
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "value", label: "Value" },
+  { key: "score", label: "Score" },
+  { key: "age", label: "Stage age" },
+];
+
 function fmtGBP(n: number): string {
   if (!n) return "value not set";
   return "£" + Math.round(n).toLocaleString("en-GB");
@@ -49,9 +57,24 @@ export default function FilteredDeals({
   onClear: () => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [sortBy, setSortBy] = useState<SortKey>("value");
   const { actionsFor, dialog } = useDealActions();
 
-  const sorted = [...deals].sort((a, b) => (b.value || 0) - (a.value || 0));
+  const scoreOf = (d: DealRecord) => risk?.get(d.id)?.score ?? 0;
+  const stageAgeOf = (d: DealRecord) => {
+    const src = d.stageEnteredAt || d.stageChangedAt;
+    const t = src ? new Date(src).getTime() : NaN;
+    return Number.isNaN(t) ? 0 : Date.now() - t;
+  };
+
+  const sorted = [...deals].sort((a, b) => {
+    if (sortBy === "score") {
+      // Deals with no outstanding risk score 0 and sink to the bottom.
+      return scoreOf(b) - scoreOf(a) || (b.value || 0) - (a.value || 0);
+    }
+    if (sortBy === "age") return stageAgeOf(b) - stageAgeOf(a);
+    return (b.value || 0) - (a.value || 0);
+  });
   const totalValue = sorted.reduce((sum, d) => sum + (d.value || 0), 0);
 
   return (
@@ -64,9 +87,23 @@ export default function FilteredDeals({
             {totalValue > 0 && ` · ${fmtGBP(totalValue)}`}
           </span>
         </span>
-        <button className="reload small" onClick={onClear}>
-          Clear filter
-        </button>
+        <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="hint">Sort:</span>
+          {SORTS.map((s) => (
+            <button
+              key={s.key}
+              className={`wk${sortBy === s.key ? " active" : ""}`}
+              // Score ordering is meaningless without the risk map loaded.
+              disabled={s.key === "score" && !risk}
+              onClick={() => setSortBy(s.key)}
+            >
+              {s.label}
+            </button>
+          ))}
+          <button className="reload small" onClick={onClear}>
+            Clear
+          </button>
+        </span>
       </div>
       {sorted.length === 0 ? (
         <div className="empty-state">No deals in this stage.</div>

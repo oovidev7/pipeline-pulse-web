@@ -971,3 +971,39 @@ export async function createDealTask({
   const taskId = body?.data?.id?.task_id ?? null;
   return { taskId, url: taskId ? taskUrl(taskId) : null };
 }
+
+export interface UpdateTaskInput {
+  taskId: string;
+  /** Mark complete or reopen. */
+  isCompleted?: boolean;
+  /** New due date as an ISO string. */
+  deadlineAt?: string;
+}
+
+/**
+ * Updates a task's state. Attio's API rejects `content` on PATCH, so task
+ * wording is immutable once created — only completion and deadline can change.
+ */
+export async function updateTask({
+  taskId,
+  isCompleted,
+  deadlineAt,
+}: UpdateTaskInput): Promise<void> {
+  const data: Record<string, unknown> = {};
+  if (typeof isCompleted === "boolean") data.is_completed = isCompleted;
+  if (deadlineAt) data.deadline_at = deadlineAt;
+  if (Object.keys(data).length === 0) {
+    throw new Error("Nothing to update");
+  }
+  await attioFetch(`/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ data }),
+  });
+  invalidateCaches();
+}
+
+/** Permanently deletes a task. Irreversible — the UI confirms first. */
+export async function deleteTask(taskId: string): Promise<void> {
+  await attioFetch(`/tasks/${taskId}`, { method: "DELETE" });
+  invalidateCaches();
+}

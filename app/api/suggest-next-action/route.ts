@@ -58,10 +58,47 @@ function buildReasonCodes(dealName: string, riskLabels: string[], hasFollowUp: b
   return Array.from(new Set(codes));
 }
 
+/**
+ * Turns an Anthropic SDK error into something worth showing a salesperson.
+ * The SDK's `message` is the raw HTTP body — a JSON blob starting with the
+ * status code — which is useless in a dashboard and alarming to read.
+ */
+function humanApiError(err: any): { message: string; status: number } {
+  const raw = String(err?.message ?? "");
+  const status = typeof err?.status === "number" ? err.status : 500;
+
+  // The SDK exposes the parsed body on .error for API errors.
+  const type = err?.error?.error?.type ?? "";
+  const detail: string = err?.error?.error?.message ?? raw;
+
+  if (/credit balance is too low/i.test(detail)) {
+    return {
+      message:
+        "Anthropic API credits exhausted. Add credits at console.anthropic.com (Plans & Billing), or set ANTHROPIC_API_KEY to a key from an account that has them.",
+      status: 402,
+    };
+  }
+  if (status === 401 || /authentication/i.test(type)) {
+    return { message: "Anthropic API key is invalid or revoked.", status: 401 };
+  }
+  if (status === 429 || /rate_limit/i.test(type)) {
+    return { message: "Anthropic rate limit hit — try again in a moment.", status: 429 };
+  }
+  if (status === 529 || /overloaded/i.test(type)) {
+    return { message: "Anthropic is overloaded — try again in a moment.", status: 529 };
+  }
+  // Unknown API error: surface the model's own sentence, not the JSON envelope.
+  if (detail && detail !== raw) return { message: detail, status };
+  return { message: "Could not generate this text. Check the server logs.", status };
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set" }, { status: 500 });
+    return NextResponse.json(
+      { error: "ANTHROPIC_API_KEY is not set — AI drafting is unavailable." },
+      { status: 500 }
+    );
   }
 
   let dealId: string | undefined;
@@ -183,9 +220,7 @@ ${
     return NextResponse.json({ dealId, mode, suggestion });
   } catch (err: any) {
     console.error("[/api/suggest-next-action] error", err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to generate suggestion" },
-      { status: 500 }
-    );
+    const { message, status } = humanApiError(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

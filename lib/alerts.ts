@@ -35,8 +35,18 @@ export interface AlertDigest {
   shouldPost: boolean;
   riskDeals: ScoredDeal[];
   signals: { club: string; dealName: string; signal: string; source_date?: string }[];
-  /** Slack mrkdwn message, ready for chat.postMessage. */
-  message: string;
+  /**
+   * Short, human-facing: fresh buying signals only. Goes to the channel the
+   * team actually reads, because a signal is a dated event worth interrupting
+   * for. Empty when no signal fired.
+   */
+  signalMessage: string;
+  /**
+   * The full risk list. Goes to the data channel — it is a standing state
+   * (the same deals are stalled tomorrow), so it belongs in a record people
+   * consult rather than a feed that pings them. Empty when nothing qualified.
+   */
+  digestMessage: string;
 }
 
 function clubOf(dealName: string): string {
@@ -111,40 +121,55 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     })
     .filter(Boolean) as AlertDigest["signals"];
 
-  const lines: string[] = [];
+  // Two messages, two audiences. Kept separate rather than one message with
+  // two sections so each can be routed to the channel that suits it.
+  const digestLines: string[] = [];
   if (riskDeals.length > 0) {
-    lines.push(`*${riskDeals.length} deal${riskDeals.length > 1 ? "s" : ""} need attention* (risk ≥ ${RISK_ALERT_THRESHOLD}):`);
+    digestLines.push(
+      `*${riskDeals.length} deal${riskDeals.length > 1 ? "s" : ""} need attention* (risk ≥ ${RISK_ALERT_THRESHOLD}):`
+    );
     for (const { deal, score, factors } of riskDeals.slice(0, MAX_LISTED)) {
-      lines.push(
+      digestLines.push(
         `• *${deal.name}* — ${deal.stage}, ${deal.ownerName || "Unassigned"}, ${fmtGBP(deal.value)} · score ${score}: ${factors.map((f) => f.label).join(", ")}`
       );
     }
     if (riskDeals.length > MAX_LISTED) {
-      lines.push(`…and ${riskDeals.length - MAX_LISTED} more on the dashboard.`);
-    }
-  }
-  if (freshSignals.length > 0) {
-    if (lines.length > 0) lines.push("");
-    lines.push(`*Fresh buying signal${freshSignals.length > 1 ? "s" : ""} on pipeline clubs:*`);
-    for (const s of freshSignals) {
-      lines.push(`• *${s.club}* (${s.dealName}): ${s.signal}`);
+      digestLines.push(`…and ${riskDeals.length - MAX_LISTED} more on the dashboard.`);
     }
   }
 
-  const shouldPost = lines.length > 0;
-  const message = shouldPost
-    ? `:telephone_receiver: *Pipeline Pulse — morning digest*\n\n${lines.join("\n")}`
+  const signalLines: string[] = freshSignals.map(
+    (s) => `• *${s.club}* — ${s.signal} _(${s.dealName})_`
+  );
+
+  const digestMessage = digestLines.length
+    ? `:telephone_receiver: *Pipeline Pulse — morning digest*\n\n${digestLines.join("\n")}`
     : "";
 
-  return { shouldPost, riskDeals, signals: freshSignals, message };
+  const signalMessage = signalLines.length
+    ? `:satellite_antenna: *${
+        signalLines.length > 1
+          ? `${signalLines.length} new buying signals`
+          : "New buying signal"
+      } on a pipeline club*\n${signalLines.join("\n")}`
+    : "";
+
+  return {
+    shouldPost: Boolean(digestMessage || signalMessage),
+    riskDeals,
+    signals: freshSignals,
+    signalMessage,
+    digestMessage,
+  };
 }
 
-/** Posts the digest. Requires chat:write and bot membership in the channel. */
-export async function postDigest(message: string): Promise<{ ok: boolean; error?: string }> {
+/** Posts one message to one channel. Requires chat:write and bot membership. */
+async function postToChannel(
+  channel: string,
+  message: string
+): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.SLACK_BOT_TOKEN;
-  const channel = process.env.SLACK_ALERTS_CHANNEL_ID;
   if (!token) return { ok: false, error: "SLACK_BOT_TOKEN not set" };
-  if (!channel) return { ok: false, error: "SLACK_ALERTS_CHANNEL_ID not set" };
 
   const res = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
@@ -156,4 +181,51 @@ export async function postDigest(message: string): Promise<{ ok: boolean; error?
   });
   const body = await res.json();
   return body.ok ? { ok: true } : { ok: false, error: body.error };
+}
+
+export interface PostResult {
+  target: "signals" | "digest";
+  channel: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Routes each half of the digest to its own channel:
+ *   - signals  -> SLACK_ALERTS_CHANNEL_ID (the channel the team reads)
+ *   - risk list -> SLACK_DIGEST_CHANNEL_ID, falling back to SLACK_CHANNEL_ID
+ *     (the data channel the weekly research already posts to)
+ *
+ * Each is posted independently so one failing channel — a missing invite, a
+ * bad id — cannot suppress the other.
+ */
+export async function postDigest(digest: AlertDigest): Promise<PostResult[]> {
+  const signalChannel = process.env.SLACK_ALERTS_CHANNEL_ID;
+  const digestChannel =
+    process.env.SLACK_DIGEST_CHANNEL_ID || process.env.SLACK_CHANNEL_ID;
+
+  const jobs: { target: PostResult["target"]; channel?: string; message: string }[] = [
+    { target: "signals", channel: signalChannel, message: digest.signalMessage },
+    { target: "digest", channel: digestChannel, message: digest.digestMessage },
+  ];
+
+  const results: PostResult[] = [];
+  for (const job of jobs) {
+    if (!job.message) continue; // nothing fired for this half
+    if (!job.channel) {
+      results.push({
+        target: job.target,
+        channel: "",
+        ok: false,
+        error:
+          job.target === "signals"
+            ? "SLACK_ALERTS_CHANNEL_ID not set"
+            : "SLACK_DIGEST_CHANNEL_ID / SLACK_CHANNEL_ID not set",
+      });
+      continue;
+    }
+    const res = await postToChannel(job.channel, job.message);
+    results.push({ target: job.target, channel: job.channel, ...res });
+  }
+  return results;
 }

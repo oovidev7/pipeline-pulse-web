@@ -35,19 +35,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ posted: false, reason: "nothing qualified" });
     }
 
-    const result = await postDigest(digest.message);
-    if (!result.ok) {
-      console.error(`[/api/alerts/run] post failed: ${result.error}`);
-      return NextResponse.json(
-        { posted: false, error: result.error, message: digest.message },
-        { status: 502 }
-      );
+    const results = await postDigest(digest);
+    const failed = results.filter((r) => !r.ok);
+    for (const f of failed) {
+      console.error(`[/api/alerts/run] ${f.target} post failed: ${f.error}`);
     }
-    return NextResponse.json({
-      posted: true,
-      riskDeals: digest.riskDeals.length,
-      signals: digest.signals.length,
-    });
+
+    return NextResponse.json(
+      {
+        // Partial success is real: signals can land while the digest fails.
+        posted: results.some((r) => r.ok),
+        results,
+        riskDeals: digest.riskDeals.length,
+        signals: digest.signals.length,
+      },
+      { status: failed.length === results.length ? 502 : 200 }
+    );
   } catch (err: any) {
     console.error("[/api/alerts/run] error", err);
     return NextResponse.json(

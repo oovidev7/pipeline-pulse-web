@@ -9,7 +9,9 @@ import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
 import { cleanSlackText } from "./slack-text";
 import { rankDeals, scoreDeal, ScoredDeal } from "./risk";
-import { CLOSED_STAGES } from "./types";
+import { CLOSED_STAGES, DealRecord } from "./types";
+import { readPreviousScores, buildScoreStateMessage } from "./alert-state";
+import { diffScores } from "./alert-diff";
 
 /**
  * Score a deal must reach to appear in the morning digest.
@@ -27,6 +29,13 @@ export const RISK_ALERT_THRESHOLD = 60;
 
 /** Deals named individually before the rest become "…and N more". */
 const MAX_LISTED = 8;
+
+/**
+ * How much a score must climb, on a deal already past the threshold, to count
+ * as "getting worse" rather than normal drift. Factors are weighted in steps
+ * of 8-20, so 3 catches a real new problem without firing on rounding.
+ */
+const ESCALATION_RISE = 3;
 /** Signals older than this aren't "fresh" — they refresh each Monday anyway. */
 const SIGNAL_FRESH_DAYS = 4;
 
@@ -35,10 +44,21 @@ export interface AlertDigest {
   shouldPost: boolean;
   riskDeals: ScoredDeal[];
   signals: { club: string; dealName: string; signal: string; source_date?: string }[];
+  /** Deals that got worse since the previous run — what the team is told about. */
+  changes: {
+    crossed: { deal: DealRecord; score: number; from: number | null; factors: string[] }[];
+    worsened: { deal: DealRecord; score: number; from: number; factors: string[] }[];
+    cleared: { deal: DealRecord; score: number; from: number }[];
+  };
+  /** True when there was no previous run to compare against. */
+  baseline: boolean;
+  /** Every open deal's score, to be written back as the next baseline. */
+  scores: Record<string, number>;
   /**
-   * Short, human-facing: fresh buying signals only. Goes to the channel the
-   * team actually reads, because a signal is a dated event worth interrupting
-   * for. Empty when no signal fired.
+   * Short, human-facing: deals that crossed into "needs action" or got
+   * materially worse since the last run. Goes to the channel the team reads,
+   * because a change is an event worth interrupting for. Empty when nothing
+   * moved — which is the normal case on a quiet day.
    */
   signalMessage: string;
   /**
@@ -104,6 +124,48 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
 
   const riskDeals = scored.filter((s) => s.score >= RISK_ALERT_THRESHOLD);
 
+  // Compare against the previous run so the team hears about *movement*, not
+  // the standing list — the same deals are stalled again tomorrow.
+  const previous = await readPreviousScores();
+  const scores: Record<string, number> = {};
+  for (const s of scored) scores[s.deal.id] = s.score;
+
+  const baseline = previous === null;
+  const changes: AlertDigest["changes"] = { crossed: [], worsened: [], cleared: [] };
+
+  if (previous) {
+    const byId = new Map(scored.map((s) => [s.deal.id, s]));
+    const diff = diffScores(
+      scored.map((s) => ({
+        id: s.deal.id,
+        score: s.score,
+        factors: s.factors.map((f) => f.label),
+      })),
+      previous.scores,
+      RISK_ALERT_THRESHOLD,
+      ESCALATION_RISE
+    );
+
+    const dealOf = (id: string) => byId.get(id)!.deal;
+    changes.crossed = diff.crossed.map(({ item, from }) => ({
+      deal: dealOf(item.id),
+      score: item.score,
+      from,
+      factors: item.factors,
+    }));
+    changes.worsened = diff.worsened.map(({ item, from }) => ({
+      deal: dealOf(item.id),
+      score: item.score,
+      from,
+      factors: item.factors,
+    }));
+    changes.cleared = diff.cleared.map(({ item, from }) => ({
+      deal: dealOf(item.id),
+      score: item.score,
+      from,
+    }));
+  }
+
   // Rule 2: fresh signals on pipeline clubs. Bounded to the first weekdays
   // after Monday's research so the same signal doesn't repeat all week.
   const dealsByClub = new Map(deals.deals.map((d) => [clubOf(d.name), d]));
@@ -138,26 +200,54 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     }
   }
 
-  const signalLines: string[] = freshSignals.map(
-    (s) => `• *${s.club}* — ${s.signal} _(${s.dealName})_`
-  );
+  // What the team hears about: deals that moved. A fresh buying signal rides
+  // along on a deal that also moved, rather than posting on its own.
+  const signalByClub = new Map(freshSignals.map((s) => [clubOf(s.dealName), s]));
+  const withSignal = (deal: DealRecord) => {
+    const s = signalByClub.get(clubOf(deal.name));
+    return s ? `\n   ↳ _buying signal:_ ${s.signal}` : "";
+  };
+
+  const changeLines: string[] = [];
+  for (const c of changes.crossed) {
+    changeLines.push(
+      `• *${c.deal.name}* — ${fmtGBP(c.deal.value)}, ${c.deal.ownerName || "Unassigned"} · *now needs action* (${
+        c.from === null ? `score ${c.score}` : `${c.from} → ${c.score}`
+      })\n   ${c.factors.join(", ")}${withSignal(c.deal)}`
+    );
+  }
+  for (const w of changes.worsened) {
+    changeLines.push(
+      `• *${w.deal.name}* — ${fmtGBP(w.deal.value)}, ${w.deal.ownerName || "Unassigned"} · getting worse (${w.from} → ${w.score})\n   ${w.factors.join(", ")}${withSignal(w.deal)}`
+    );
+  }
+  if (changes.cleared.length > 0) {
+    changeLines.push(
+      `_No longer flagged: ${changes.cleared.map((c) => c.deal.name).join(", ")}._`
+    );
+  }
 
   const digestMessage = digestLines.length
     ? `:telephone_receiver: *Pipeline Pulse — morning digest*\n\n${digestLines.join("\n")}`
     : "";
 
-  const signalMessage = signalLines.length
-    ? `:satellite_antenna: *${
-        signalLines.length > 1
-          ? `${signalLines.length} new buying signals`
-          : "New buying signal"
-      } on a pipeline club*\n${signalLines.join("\n")}`
-    : "";
+  // Nothing to say on the first run — there is no baseline to compare with,
+  // and announcing every already-flagged deal as "new" would be wrong.
+  const moved = changes.crossed.length + changes.worsened.length;
+  const signalMessage =
+    baseline || changeLines.length === 0
+      ? ""
+      : `:rotating_light: *Pipeline moved — ${
+          moved === 1 ? "1 deal needs" : `${moved} deals need`
+        } a look*\n${changeLines.join("\n")}`;
 
   return {
     shouldPost: Boolean(digestMessage || signalMessage),
     riskDeals,
     signals: freshSignals,
+    changes,
+    baseline,
+    scores,
     signalMessage,
     digestMessage,
   };
@@ -184,7 +274,7 @@ async function postToChannel(
 }
 
 export interface PostResult {
-  target: "signals" | "digest";
+  target: "signals" | "digest" | "state";
   channel: string;
   ok: boolean;
   error?: string;
@@ -227,5 +317,17 @@ export async function postDigest(digest: AlertDigest): Promise<PostResult[]> {
     const res = await postToChannel(job.channel, job.message);
     results.push({ target: job.target, channel: job.channel, ...res });
   }
+
+  // Record this run's scores last, so the next run can report movement. Always
+  // attempted — even when nothing was posted — otherwise a quiet day would
+  // leave the baseline stale and the following run would over-report.
+  if (digestChannel) {
+    const res = await postToChannel(
+      digestChannel,
+      buildScoreStateMessage(digest.scores)
+    );
+    results.push({ target: "state", channel: digestChannel, ...res });
+  }
+
   return results;
 }

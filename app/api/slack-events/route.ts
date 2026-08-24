@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { handleThreadReply } from "@/lib/capture";
+import { handleHygieneReply } from "@/lib/hygiene";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -87,11 +88,21 @@ export async function POST(req: NextRequest) {
   if (!isReply) return NextResponse.json({ ok: true });
 
   try {
+    // A reply belongs to at most one loop: capture asks first (the common
+    // case), then hygiene `link N` commands. Both no-op harmlessly on
+    // threads that aren't theirs.
     const result = await handleThreadReply(event.channel, event.thread_ts);
     if (result.handled) {
       console.log(`[slack-events] settled ask for ${result.club}`);
+      return NextResponse.json({ ok: true, ...result });
     }
-    return NextResponse.json({ ok: true, ...result });
+    const hygiene = await handleHygieneReply(
+      event.channel,
+      event.thread_ts,
+      event.text ?? ""
+    );
+    if (hygiene.handled) console.log("[slack-events] applied hygiene fix");
+    return NextResponse.json({ ok: true, ...hygiene });
   } catch (err: any) {
     console.error("[slack-events] error", err);
     // 200 regardless: a 5xx makes Slack retry and eventually disable the

@@ -11,8 +11,11 @@ const PUBLIC_PATHS = [
   "/api/alerts/run",
   "/api/warm",
   "/api/capture/run",
+  "/api/hygiene/run",
   // Authenticated by Slack's request signature, not the session cookie.
   "/api/slack-events",
+  // Authenticated by the secret in the URL registered with Attio.
+  "/api/attio-webhook",
 ];
 
 export async function middleware(req: NextRequest) {

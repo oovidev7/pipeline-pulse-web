@@ -191,6 +191,8 @@ export interface CompanyRecord {
   name: string;
   /** ISO country code from `primary_location`, for grouping by market. */
   countryCode: string | null;
+  /** Primary email domain. Its absence blocks Attio's enrichment entirely. */
+  domain: string | null;
 }
 
 /**
@@ -199,11 +201,18 @@ export interface CompanyRecord {
  * break on the first ambiguous name and silently misfile it.
  */
 function normalizeCompanies(records: any[]): CompanyRecord[] {
-  return records.map((record) => ({
-    id: record?.id?.record_id,
-    name: getAttrString(record, "name") || "Unknown",
-    countryCode: getAttrValue(record, "primary_location")?.country_code ?? null,
-  }));
+  return records.map((record) => {
+    const domains = record?.values?.domains;
+    return {
+      id: record?.id?.record_id,
+      name: getAttrString(record, "name") || "Unknown",
+      countryCode: getAttrValue(record, "primary_location")?.country_code ?? null,
+      domain:
+        Array.isArray(domains) && domains.length > 0
+          ? (domains[0]?.domain ?? domains[0]?.root_domain ?? null)
+          : null,
+    };
+  });
 }
 
 /** Company id → primary email domain, from the companies object's `domains`. */

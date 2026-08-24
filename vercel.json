@@ -11,6 +11,10 @@
     {
       "path": "/api/capture/run",
       "schedule": "20 8-18 * * 1-5"
+    },
+    {
+      "path": "/api/hygiene/run",
+      "schedule": "30 7 * * 1"
     }
   ]
 }

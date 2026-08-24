@@ -225,6 +225,11 @@ export default function Agenda() {
                           ) : (
                             item.label
                           )}
+                          {item.excerpt && (
+                            <span className="muted" style={{ display: "block", fontSize: 12.5, marginTop: 2 }}>
+                              “{clamp(item.excerpt, 180)}”
+                            </span>
+                          )}
                         </span>
                       </div>
                     ))
@@ -243,13 +248,14 @@ export default function Agenda() {
                 won this year.
               </p>
               <p>
-                <b>Open</b> — every open deal's value added up. Optimistic by
-                nature: most deals don't close.
+                <b>Weighted pipeline</b> — every open deal's value multiplied by
+                our actual win rate so far. The honest size of the pipeline; if
+                it's below the gap, there isn't enough in play yet.
               </p>
               <p>
-                <b>Weighted</b> — the open value multiplied by our actual win
-                rate so far. The honest version of the number above; if it's
-                below the gap, the pipeline isn't big enough yet.
+                <b>The stage strip</b> — where the open value actually sits.
+                £45k in Trialling and £45k in Prospecting are not the same
+                money. Click a stage to see its deals.
               </p>
             </Help>
           </div>
@@ -258,15 +264,91 @@ export default function Agenda() {
             <div className="cov-value">{GBP(data.coverage.gap)}</div>
           </div>
           <div className="cov-item">
-            <div className="cov-label">Open</div>
-            <div className="cov-value">{GBP(data.coverage.openValue)}</div>
-          </div>
-          <div className="cov-item">
             <div className="cov-label">Weighted at {Math.round(data.coverage.winRate * 100)}%</div>
             <div className="cov-value">{GBP(data.coverage.weighted)}</div>
           </div>
         </div>
+        {/* The distribution a single open total flattens. */}
+        <div className="stage-strip">
+          {data.stages.map((s) => (
+            <Link
+              className="stage-cell"
+              href={`/deals?stage=${encodeURIComponent(s.stage)}`}
+              key={s.stage}
+            >
+              <div className="stage-cell-name">{s.stage.replace(" / discovery", "")}</div>
+              <div className="stage-cell-count">{s.count}</div>
+              <div className="stage-cell-meta">
+                {GBP(s.value)}
+                {s.avgDays !== null && ` · avg ${s.avgDays}d in stage`}
+              </div>
+            </Link>
+          ))}
+        </div>
       </section>
+
+      {/* --------------------------- coming up --------------------------- */}
+      {data.upcoming.length > 0 && (
+        <section>
+          <div className="eyebrow">
+            <span className="dot" />
+            <span>Coming up · next 7 days</span>
+            <Help>
+              <p>
+                Every client call already in the diary, straight from Attio's
+                calendar sync — with the deal's standing note and the research
+                brief where one exists, so nobody walks in cold.
+              </p>
+            </Help>
+          </div>
+          {data.upcoming.map((c, i) => (
+            <div className="item" key={i}>
+              <div className="item-head">
+                <div>
+                  <div className="item-idx">
+                    {new Date(c.at).toLocaleDateString("en-GB", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "short",
+                    })}{" "}
+                    ·{" "}
+                    {new Date(c.at).toLocaleTimeString("en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                  <div className="item-title">
+                    {c.deal ? (
+                      <Link href={`/deal/${c.deal.id}`}>
+                        {c.deal.name.replace(/\s+[-–]\s+.*$/, "")}
+                      </Link>
+                    ) : (
+                      c.title
+                    )}
+                  </div>
+                  <div className="item-sub">
+                    {c.title}
+                    {c.deal ? ` · ${c.deal.stage}` : " · not in the pipeline yet"}
+                  </div>
+                </div>
+                {c.deal && <div className="item-value">{GBP(c.deal.value)}</div>}
+              </div>
+              {c.verdict && (
+                <div className="quote">
+                  <span className="quote-label">The last word on this deal</span>
+                  “{c.verdict}”
+                </div>
+              )}
+              {c.brief && (
+                <div className="quote">
+                  <span className="quote-label">Prep brief</span>
+                  {clamp(c.brief, 320)}
+                </div>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* ----------------------------- moved ----------------------------- */}
       {data.moved.length > 0 && (

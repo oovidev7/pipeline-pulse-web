@@ -149,6 +149,21 @@ section:last-of-type { border-bottom: 0; }
 .cov-item .cov-label { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--zinc-500); }
 .cov-item .cov-value { font-family: var(--font-display); font-weight: 600; font-size: 22px; font-variant-numeric: tabular-nums; margin-top: 3px; }
 
+/* --- stage strip -------------------------------------------------------- */
+.stage-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.stage-cell {
+  flex: 1 1 120px; min-width: 120px;
+  border: 1px solid var(--zinc-200); border-radius: 10px; padding: 10px 12px;
+  transition: border-color .15s;
+}
+.stage-cell:hover { border-color: var(--zinc-400); }
+.stage-cell-name { font-size: 12px; color: var(--zinc-500); }
+.stage-cell-count {
+  font-family: var(--font-display); font-weight: 600; font-size: 22px;
+  font-variant-numeric: tabular-nums; margin-top: 2px;
+}
+.stage-cell-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--zinc-500); margin-top: 2px; }
+
 /* --- decision items ---------------------------------------------------- */
 .item { border: 1px solid var(--zinc-200); border-radius: 10px; padding: 18px 20px; margin-top: 10px; transition: border-color .15s; }
 .item:hover { border-color: var(--zinc-400); }

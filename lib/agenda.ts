@@ -12,7 +12,8 @@ import { unstable_cache } from "next/cache";
 import { getComputedDealsResponse, getOpenTasks } from "./attio";
 import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
-import { getDealContext } from "./deal-context";
+import { getDealContext, getMeetings } from "./deal-context";
+import { STAGES } from "./types";
 import { buildMetrics, WeeklyMetrics, WeekDetail } from "./metrics";
 import { rankDeals, scoreDeal, RiskFactor } from "./risk";
 import { RISK_ALERT_THRESHOLD } from "./alerts";
@@ -47,6 +48,24 @@ export interface AgendaQueueItem {
   channels: string[];
 }
 
+export interface UpcomingCall {
+  at: string;
+  title: string;
+  deal: DealRecord | null;
+  /** The standing verdict on the deal, as one line of context. */
+  verdict: string | null;
+  /** Monday research's prepared brief for this club, when one exists. */
+  brief: string | null;
+}
+
+export interface StageRow {
+  stage: string;
+  count: number;
+  value: number;
+  /** Average days the open deals have currently been sitting in this stage. */
+  avgDays: number | null;
+}
+
 export interface Agenda {
   weekOf: string;
   coverage: {
@@ -66,6 +85,10 @@ export interface Agenda {
   queueTotal: number;
   /** Deals that changed stage in the last 7 days — read out, not debated. */
   moved: { deal: DealRecord; from: string | null; to: string }[];
+  /** Client calls booked for the next 7 days, each with its one-line brief. */
+  upcoming: UpcomingCall[];
+  /** Open pipeline by stage — where the value actually sits. */
+  stages: StageRow[];
   cachedAt: string;
 }
 
@@ -146,7 +169,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v3";
+const AGENDA_CACHE_VERSION = "v4";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -165,9 +188,10 @@ export async function buildAgenda(): Promise<Agenda> {
   const gmailByDeal = new Map(
     (activity?.entries ?? []).map((e: any) => [e.dealId, e.lastContactDate ?? null])
   );
-  const [context, metrics] = await Promise.all([
+  const [context, metrics, allMeetings] = await Promise.all([
     getDealContext(gmailByDeal),
     buildMetrics(8).catch(() => null),
+    getMeetings().catch(() => []),
   ]);
 
   const signals: any[] = slack?.marketSignals?.signals ?? [];
@@ -229,6 +253,63 @@ export async function buildAgenda(): Promise<Agenda> {
     })
     .sort((a, b) => (b.deal.value || 0) - (a.deal.value || 0));
 
+  // Coming up: booked client calls for the next 7 days, each carrying the one
+  // line of context that makes it preparable — the deal's standing verdict and
+  // Monday research's brief where one exists. Walking into a call having read
+  // two sentences beats walking in cold, and this was the old dashboard's most
+  // valuable section by the user's own account.
+  const nowIso = new Date().toISOString();
+  const weekAhead = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const briefs: any[] = slack?.callBriefs?.briefs ?? [];
+  // Every external call, not just pipeline ones — the diary is what it is,
+  // and "Felix x Danny (no deal yet)" is exactly the kind of thing worth
+  // seeing coming. Internal syncs stay out.
+  const upcoming: UpcomingCall[] = allMeetings
+    .filter(
+      (m) => m.kind !== "internal" && m.startsAt > nowIso && m.startsAt <= weekAhead
+    )
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+    .slice(0, 10)
+    .map((m) => {
+      const deal = m.dealId ? deals.deals.find((d) => d.id === m.dealId) ?? null : null;
+      const club = deal ? clubOf(deal.name) : null;
+      const brief = club
+        ? briefs.find((b: any) => (b.club || "").trim().toLowerCase() === club)
+        : null;
+      return {
+        at: m.startsAt,
+        title: m.title || "Call",
+        deal,
+        verdict: deal ? context.get(deal.id)?.visibility.verdict ?? null : null,
+        brief: brief?.brief ?? null,
+      };
+    });
+
+  // Where the value sits, stage by stage. A single open total flattens the
+  // only distribution that matters: £45k in Trialling and £45k in Prospecting
+  // are not the same money.
+  const stages: StageRow[] = STAGES.filter((s) => !CLOSED_STAGES.includes(s))
+    .map((stage) => {
+      const inStage = open.filter((d) => d.stage === stage);
+      const dwells = inStage
+        .map((d) => {
+          const from = d.stageEnteredAt || d.stageChangedAt;
+          return from
+            ? (Date.now() - new Date(from).getTime()) / 86_400_000
+            : null;
+        })
+        .filter((n): n is number => n !== null);
+      return {
+        stage,
+        count: inStage.length,
+        value: inStage.reduce((t, d) => t + (d.value || 0), 0),
+        avgDays: dwells.length
+          ? Math.round(dwells.reduce((a, b) => a + b, 0) / dwells.length)
+          : null,
+      };
+    })
+    .filter((r) => r.count > 0);
+
   // The meeting reviews the last *complete* week. On a Monday morning the
   // current week is hours old and every stat would read zero with an alarming
   // negative delta — which is noise wearing the clothes of a collapse.
@@ -265,6 +346,8 @@ export async function buildAgenda(): Promise<Agenda> {
       ...(deals.movement?.won ?? []),
       ...(deals.movement?.lost ?? []),
     ].map((m) => ({ deal: m.deal, from: m.fromStage, to: m.toStage })),
+    upcoming,
+    stages,
     cachedAt: new Date().toISOString(),
   };
 }

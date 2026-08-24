@@ -126,7 +126,8 @@ export async function fetchMeetings(): Promise<AttioMeeting[]> {
  */
 export function attachDeals(
   meetings: AttioMeeting[],
-  deals: { id: string; associatedCompanyId: string | null }[]
+  deals: { id: string; associatedCompanyId: string | null }[],
+  people: { email: string | null; companyId: string | null }[] = []
 ): AttioMeeting[] {
   const dealByCompany = new Map<string, string>();
   for (const d of deals) {
@@ -137,9 +138,25 @@ export function attachDeals(
     }
   }
 
+  // Second route: attendee email → person → company → deal. Attio links a
+  // meeting's records inconsistently (future meetings often not at all), but
+  // who is on the invite is always there — this is what lets a booked call
+  // count as a client call before anyone has linked anything.
+  const dealByEmail = new Map<string, string>();
+  for (const p of people) {
+    if (!p.email || !p.companyId) continue;
+    const dealId = dealByCompany.get(p.companyId);
+    if (dealId && !dealByEmail.has(p.email.toLowerCase())) {
+      dealByEmail.set(p.email.toLowerCase(), dealId);
+    }
+  }
+
   return meetings.map((m) => {
-    if (m.kind === "internal" || m.kind === "unmatched") return m;
-    const dealId = m.companyIds.map((c) => dealByCompany.get(c)).find(Boolean) ?? null;
+    if (m.kind === "internal") return m;
+    const dealId =
+      m.companyIds.map((c) => dealByCompany.get(c)).find(Boolean) ??
+      m.externalEmails.map((e) => dealByEmail.get(e.toLowerCase())).find(Boolean) ??
+      null;
     return dealId ? { ...m, dealId, kind: "client" as const } : m;
   });
 }

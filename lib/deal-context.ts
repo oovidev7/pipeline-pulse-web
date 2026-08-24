@@ -77,7 +77,7 @@ export async function getMeetings(): Promise<AttioMeeting[]> {
     getAttioSnapshot(),
     meetingsStore.get(),
   ]);
-  return attachDeals(meetings, snapshot.deals);
+  return attachDeals(meetings, snapshot.deals, snapshot.people);
 }
 
 /** Latest past and earliest future calendar touch across a deal's contacts. */
@@ -129,7 +129,7 @@ export async function getDealContext(
 
   const now = new Date().toISOString();
   const meetingsByDeal = new Map<string, AttioMeeting[]>();
-  for (const m of attachDeals(rawMeetings, snapshot.deals)) {
+  for (const m of attachDeals(rawMeetings, snapshot.deals, snapshot.people)) {
     if (!m.dealId) continue;
     const arr = meetingsByDeal.get(m.dealId) || [];
     arr.push(m);

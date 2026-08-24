@@ -47,6 +47,8 @@ export interface MetricItem {
   label: string;
   at: string;
   dealId: string | null;
+  /** For conversations: the exchange itself, so the count opens into substance. */
+  excerpt: string | null;
 }
 
 export type WeekDetail = Record<keyof Omit<WeeklyMetrics, "week">, MetricItem[]>;
@@ -123,14 +125,19 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
   const bump = (
     iso: string,
     key: keyof Omit<WeeklyMetrics, "week">,
-    item: { label: string; dealId?: string | null }
+    item: { label: string; dealId?: string | null; excerpt?: string | null }
   ) => {
     const w = weekOf(iso);
     const row = byWeek.get(w) ?? blank();
     row[key] += 1;
     byWeek.set(w, row);
     const detail = (details[w] ??= blankDetail());
-    detail[key].push({ label: item.label, at: iso, dealId: item.dealId ?? null });
+    detail[key].push({
+      label: item.label,
+      at: iso,
+      dealId: item.dealId ?? null,
+      excerpt: item.excerpt ?? null,
+    });
   };
 
   const dealName = new Map(snapshot.deals.map((d) => [d.id, d.name]));
@@ -187,7 +194,12 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     (n) => n.human && n.channel !== "meeting" && n.createdAt >= since
   );
   for (const n of conversationNotes) {
-    bump(n.createdAt, "conversations", { label: n.title || "(untitled note)" });
+    // The exchange itself rides along: a list of note titles says something
+    // happened, the excerpt says what.
+    bump(n.createdAt, "conversations", {
+      label: n.title || "(untitled note)",
+      excerpt: n.excerpt || null,
+    });
   }
 
   const weeks: WeeklyMetrics[] = [...byWeek.entries()]

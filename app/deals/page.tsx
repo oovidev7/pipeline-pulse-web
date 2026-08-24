@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { DealsApiResponse } from "@/lib/types";
 import { CLOSED_STAGES } from "@/lib/types";
@@ -17,10 +18,21 @@ const STAGES = ["Prospecting", "Demo / discovery", "Qualified", "Trialling", "Pr
  * poor version of both — deciding happens on the agenda, depth happens on the
  * deal page, and this exists purely for "show me everything in Qualified".
  */
-export default function Deals() {
+export default function DealsPage() {
+  // useSearchParams needs a Suspense boundary under the app router.
+  return (
+    <Suspense fallback={<div className="panel"><div className="loading">Loading…</div></div>}>
+      <Deals />
+    </Suspense>
+  );
+}
+
+function Deals() {
   const [data, setData] = useState<DealsApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [stage, setStage] = useState<string | null>(null);
+  // The agenda's stage strip links here with ?stage=, so the filter arrives set.
+  const initialStage = useSearchParams().get("stage");
+  const [stage, setStage] = useState<string | null>(initialStage);
 
   useEffect(() => {
     fetch("/api/deals")

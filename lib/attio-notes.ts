@@ -67,7 +67,19 @@ function classify(title: string, hasMeeting: boolean): NoteChannel {
 
 function excerptOf(body: string | null | undefined, limit = 240): string {
   if (!body) return "";
-  const flat = body.replace(/\s+/g, " ").trim();
+  let flat = body.replace(/\s+/g, " ").trim();
+
+  // LinkedIn captures carry page chrome before the conversation ("Status is
+  // online Active now (17/08/2026) | [17/08/2026, 09:55] …"). The exchange
+  // proper starts at the first "Firstname Lastname:" speaker marker — jump
+  // there when it appears early, and leave notes without one untouched.
+  const speaker = flat.match(
+    /(?:^|[\s|\]])([A-ZÀ-Þ][\p{L}'’.-]+(?:\s+[A-ZÀ-Þ][\p{L}'’.-]+){1,3}):\s/u
+  );
+  if (speaker && speaker.index !== undefined && speaker.index < 160) {
+    flat = flat.slice(flat.indexOf(speaker[1], speaker.index));
+  }
+
   return flat.length <= limit ? flat : `${flat.slice(0, limit - 1).trimEnd()}…`;
 }
 
@@ -97,7 +109,14 @@ export async function fetchNotes(): Promise<AttioNote[]> {
 
     for (const row of rows) {
       if ((row?.created_at ?? "") < horizon) continue;
-      const title: string = row?.title ?? "";
+      // Titles arrive with whatever the capturing tool grabbed — LinkedIn
+      // page chrome, raw newlines. One line, bounded, everywhere.
+      const title: string = (row?.title ?? "")
+        .replace(/\s+/g, " ")
+        // LinkedIn page chrome that rides into captured titles.
+        .replace(/\s*Status is (?:on|off)line.*$/i, "")
+        .trim()
+        .slice(0, 120);
       if (isAgentNote(title)) continue;
 
       const parentObject: string = row?.parent_object ?? "";

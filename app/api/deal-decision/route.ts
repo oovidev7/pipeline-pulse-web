@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { getAttioSnapshot, saveStallNote, updateDealStage } from "@/lib/attio";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +73,10 @@ export async function POST(req: NextRequest) {
     if (decision === "dead" && deal.stage !== "Lost") {
       await updateDealStage(dealId, "Lost");
     }
+
+    // Drop the cached agenda, or reopening the page would show the deal still
+    // waiting on a decision that was just taken.
+    revalidateTag("agenda");
 
     return NextResponse.json({ ok: true, decision, recorded: line });
   } catch (err: any) {

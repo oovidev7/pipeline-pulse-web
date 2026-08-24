@@ -3,6 +3,7 @@
 // scoring function but not its inputs, which is exactly how a number on screen
 // and a number in Slack drift apart.
 
+import { unstable_cache, revalidateTag } from "next/cache";
 import { getAttioSnapshot } from "./attio";
 import { fetchNotes, groupNotesByDeal, DealNotes } from "./attio-notes";
 import { fetchMeetings, attachDeals, AttioMeeting } from "./attio-meetings";
@@ -12,16 +13,32 @@ import { PersonRecord } from "./types";
 const CACHE_TTL_MS = 3 * 60 * 1000;
 
 /**
- * Caches a whole-workspace paginated read, sharing the in-flight promise.
- *
- * Notes and meetings are each dozens of requests — meetings is ~56 against
- * 2,750 records. A plain time cache does not help the first load, where
- * several callers arrive at once, all miss, and each start their own
- * pagination; that multiplied the request count enough to trip Attio's rate
- * limit. Callers now await the same promise, so the workspace is paginated
- * once however many ask.
+ * How long the shared cache holds a workspace read. Longer than the in-memory
+ * TTL because this one survives between requests and is what stops the first
+ * visitor of the day waiting half a minute.
  */
-function cachedFetch<T>(load: () => Promise<T>) {
+const SHARED_TTL_SECONDS = 3600;
+
+/**
+ * Caches a whole-workspace paginated read in two places, because one is not
+ * enough.
+ *
+ * The in-memory layer shares the in-flight promise: notes and meetings are
+ * dozens of requests each, and without it several callers arriving together
+ * all miss, all start their own pagination, and trip Attio's rate limit.
+ *
+ * The `unstable_cache` layer is the one that matters in production. Every
+ * serverless invocation gets a fresh module scope, so an in-memory cache is
+ * always cold for whoever arrives next — warming one instance does nothing for
+ * the person who lands on another. This layer is shared across instances, so a
+ * scheduled warm actually keeps the agenda fast for everybody.
+ */
+function cachedFetch<T>(fetcher: () => Promise<T>, key: string) {
+  const load = unstable_cache(fetcher, [key], {
+    revalidate: SHARED_TTL_SECONDS,
+    tags: [key],
+  });
+
   let cache: { data: T; timestamp: number } | null = null;
   let inFlight: Promise<T> | null = null;
 
@@ -45,8 +62,8 @@ function cachedFetch<T>(load: () => Promise<T>) {
   return { get, invalidate: () => { cache = null; } };
 }
 
-const notesStore = cachedFetch(fetchNotes);
-const meetingsStore = cachedFetch(fetchMeetings);
+const notesStore = cachedFetch(fetchNotes, "attio-notes");
+const meetingsStore = cachedFetch(fetchMeetings, "attio-meetings");
 
 /** Every meeting, deal-attributed. Exported for the metrics view. */
 export async function getMeetings(): Promise<AttioMeeting[]> {
@@ -152,4 +169,9 @@ export async function getDealContext(
 export function invalidateNotesCache(): void {
   notesStore.invalidate();
   meetingsStore.invalidate();
+  // Also drop the shared copy, or a "?refresh=1" would return the same stale
+  // data it was asked to bypass.
+  for (const tag of ["attio-notes", "attio-meetings"]) {
+    try { revalidateTag(tag); } catch { /* outside a request scope; ignore */ }
+  }
 }

@@ -17,8 +17,12 @@ import {
 } from "./types";
 import { runWithConcurrency } from "./google-auth";
 
+import { unstable_cache, revalidateTag } from "next/cache";
+
 const ATTIO_BASE = "https://api.attio.com/v2";
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+/** Shared-cache window. Longer, because it survives between invocations. */
+const SHARED_SNAPSHOT_SECONDS = 3600;
 
 function apiKey(): string {
   const key = process.env.ATTIO_API_KEY;
@@ -330,12 +334,7 @@ async function fetchAllStageHistory(
 let rawCache: { data: AttioSnapshot; timestamp: number } | null = null;
 let computedCache: { data: DealsApiResponse; timestamp: number } | null = null;
 
-/** Fetches deals, people, and workspace members from Attio (raw, uncomputed). Cached 3 min. */
-export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnapshot> {
-  if (!forceRefresh && rawCache && Date.now() - rawCache.timestamp < CACHE_TTL_MS) {
-    return rawCache.data;
-  }
-
+async function buildSnapshot(): Promise<AttioSnapshot> {
   const [dealRecords, personRecords, companyRecords, members] = await Promise.all([
     listAllRecords("deals"),
     listAllRecords("people"),
@@ -429,6 +428,32 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
     members,
     stageHistory,
   };
+  return data;
+}
+
+/**
+ * The snapshot, cached in two layers.
+ *
+ * Building it costs a records query per object plus one stage-history request
+ * per deal — around sixty calls. The in-memory layer covers repeat reads inside
+ * a single invocation; the shared layer is what survives between them, since
+ * every serverless invocation starts with an empty module scope and would
+ * otherwise rebuild the whole thing for whoever arrives next.
+ *
+ * `forceRefresh` deliberately bypasses both: it exists for the moment after a
+ * write, where returning a cached copy would show the user their change had not
+ * happened.
+ */
+const sharedSnapshot = unstable_cache(buildSnapshot, ["attio-snapshot"], {
+  revalidate: SHARED_SNAPSHOT_SECONDS,
+  tags: ["attio-snapshot"],
+});
+
+export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnapshot> {
+  if (!forceRefresh && rawCache && Date.now() - rawCache.timestamp < CACHE_TTL_MS) {
+    return rawCache.data;
+  }
+  const data = forceRefresh ? await buildSnapshot() : await sharedSnapshot();
   rawCache = { data, timestamp: Date.now() };
   return data;
 }
@@ -964,6 +989,13 @@ function invalidateCaches(): void {
   rawCache = null;
   computedCache = null;
   tasksCache = null;
+  // The shared copy too, or a write would appear to have done nothing until
+  // the revalidate window expired an hour later.
+  try {
+    revalidateTag("attio-snapshot");
+  } catch {
+    // Called outside a request scope (a script, a test) — nothing to drop.
+  }
 }
 
 /**

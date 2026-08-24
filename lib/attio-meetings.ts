@@ -56,6 +56,16 @@ function internalPattern(): RegExp {
 const PAGE = 50;
 /** ~2,750 meetings on this workspace at 50/page; this is headroom, not a target. */
 const MAX_PAGES = 200;
+/**
+ * How far back to keep once fetched. Everything computed from meetings — the
+ * last call on a deal, twelve weeks of KPIs — sits well inside this, and a deal
+ * whose most recent call predates it is dark by every other measure anyway.
+ *
+ * The point is size: the whole history is ~2,750 rows, and this result is held
+ * in a shared cache with a payload limit. Future meetings are always kept, since
+ * a booked call is what tells us a deal is alive.
+ */
+const KEEP_MONTHS = 18;
 
 export async function fetchMeetings(): Promise<AttioMeeting[]> {
   const raw: any[] = [];
@@ -74,11 +84,14 @@ export async function fetchMeetings(): Promise<AttioMeeting[]> {
   }
 
   const internal = internalPattern();
+  const keepFrom = new Date(
+    Date.now() - KEEP_MONTHS * 30 * 86_400_000
+  ).toISOString();
 
   return raw
     .map((m): AttioMeeting | null => {
       const startsAt: string | undefined = m?.start?.datetime;
-      if (!startsAt) return null;
+      if (!startsAt || startsAt < keepFrom) return null;
 
       const emails: string[] = (m?.participants ?? [])
         .map((p: any) => p?.email_address)

@@ -8,6 +8,7 @@
 // The dashboard's numbers and Slack's numbers used to drift apart precisely
 // because two callers joined the same sources slightly differently.
 
+import { unstable_cache } from "next/cache";
 import { getComputedDealsResponse, getOpenTasks } from "./attio";
 import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
@@ -92,6 +93,23 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
   }
   return null;
 }
+
+/**
+ * The finished agenda, cached across invocations.
+ *
+ * Caching the parts was not enough: the assembly also pulls Gmail and Slack,
+ * which have no shared cache of their own, so a warm build still took seconds.
+ * Caching the result makes opening the page a single read whatever happens
+ * underneath — which is the whole point, since the first person in on Monday
+ * should not be the one who pays to rebuild it.
+ *
+ * `revalidateTag("agenda")` runs after any decision is recorded, so the page
+ * never shows someone their own change as not having happened.
+ */
+export const getAgenda = unstable_cache(() => buildAgenda(), ["agenda"], {
+  revalidate: 3600,
+  tags: ["agenda"],
+});
 
 export async function buildAgenda(): Promise<Agenda> {
   const [deals, tasks, slack, activity] = await Promise.all([

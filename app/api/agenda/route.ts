@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildAgenda } from "@/lib/agenda";
+import { buildAgenda, getAgenda } from "@/lib/agenda";
 import { invalidateNotesCache } from "@/lib/deal-context";
 
 export const dynamic = "force-dynamic";
@@ -7,9 +7,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  if (req.nextUrl.searchParams.has("refresh")) invalidateNotesCache();
+  const bust = req.nextUrl.searchParams.has("refresh");
+  if (bust) invalidateNotesCache();
   try {
-    return NextResponse.json(await buildAgenda());
+    // "?refresh=1" must actually rebuild, not hand back the copy it was asked
+    // to bypass.
+    return NextResponse.json(bust ? await buildAgenda() : await getAgenda());
   } catch (err: any) {
     console.error("[/api/agenda] error", err);
     return NextResponse.json(

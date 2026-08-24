@@ -1008,7 +1008,7 @@ export async function getOpenTasks(forceRefresh = false): Promise<TasksApiRespon
 // ---------------------------------------------------------------------------
 
 /** Invalidates the cached snapshots so the next read reflects a write. */
-function invalidateCaches(): void {
+export function invalidateCaches(): void {
   rawCache = null;
   computedCache = null;
   tasksCache = null;

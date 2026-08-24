@@ -224,6 +224,10 @@ async function slack(method: string, params: Record<string, unknown>) {
       "Content-Type": "application/json; charset=utf-8",
     },
     body: JSON.stringify(params),
+    // Next.js caches fetches made inside GET route handlers — POSTs included.
+    // A cached conversations.history is how the cron reads a thread from
+    // before the reply existed and concludes nobody answered.
+    cache: "no-store",
   });
   const body = await res.json();
   if (!body.ok) throw new Error(`${method}: ${body.error}`);

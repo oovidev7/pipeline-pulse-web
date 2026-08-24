@@ -328,7 +328,11 @@ export default function Agenda() {
                   </div>
                   <div className="item-sub">
                     {c.title}
-                    {c.deal ? ` · ${c.deal.stage}` : " · not in the pipeline yet"}
+                    {c.deal
+                      ? ` · ${c.deal.stage}`
+                      : c.company
+                        ? ` · ${c.company} · no deal yet`
+                        : " · not in the pipeline yet"}
                   </div>
                 </div>
                 {c.deal && <div className="item-value">{GBP(c.deal.value)}</div>}

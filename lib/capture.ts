@@ -15,7 +15,7 @@
 // Granola misses, which is why a call that already has a note is never asked
 // about.
 
-import { attioFetch, getAttioSnapshot } from "./attio";
+import { attioFetch, getAttioSnapshot, invalidateCaches } from "./attio";
 import { getMeetings } from "./deal-context";
 import { fetchNotes } from "./attio-notes";
 import { AttioMeeting } from "./attio-meetings";
@@ -50,13 +50,30 @@ interface AskRecord {
   done?: boolean;
 }
 
+/**
+ * A booked call with a company that has no deal — offered, never assumed.
+ * Auto-creating from the calendar would make deals out of PR firms and
+ * investors; one word from a human is the difference.
+ */
+interface ProposalRecord {
+  ts: string;
+  companyId: string;
+  companyName: string;
+  askedAt: string;
+  done?: boolean;
+}
+
 export interface CaptureState {
   asks: Record<string, AskRecord>;
+  /** Keyed by company id, so a company is proposed once, not per meeting. */
+  proposals: Record<string, ProposalRecord>;
 }
 
 export interface CaptureRunResult {
   asked: { club: string; title: string; posted: boolean }[];
   replies: { club: string; savedNote: boolean; namedContact: string | null }[];
+  proposed: { company: string }[];
+  created: { deal: string }[];
   skipped: { club: string; reason: string }[];
   errors: string[];
 }
@@ -82,6 +99,10 @@ async function slack(method: string, params: Record<string, unknown>) {
       "Content-Type": "application/json; charset=utf-8",
     },
     body: JSON.stringify(params),
+    // Next.js caches fetches made inside GET route handlers — POSTs included.
+    // A cached conversations.history is how the cron reads a thread from
+    // before the reply existed and concludes nobody answered.
+    cache: "no-store",
   });
   const body = await res.json();
   if (!body.ok) throw new Error(`${method}: ${body.error}`);
@@ -95,7 +116,7 @@ async function slack(method: string, params: Record<string, unknown>) {
 
 export async function readCaptureState(): Promise<CaptureState> {
   const channel = dataChannel();
-  if (!channel) return { asks: {} };
+  if (!channel) return { asks: {}, proposals: {} };
   try {
     const body = await slack("conversations.history", { channel, limit: 80 });
     for (const msg of body.messages ?? []) {
@@ -104,16 +125,24 @@ export async function readCaptureState(): Promise<CaptureState> {
       const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (!fenced) continue;
       try {
-        const parsed = JSON.parse(fenced[1]);
-        if (parsed && typeof parsed.asks === "object") return { asks: parsed.asks };
+        // Slack rewrites emails and URLs inside message text — even inside a
+        // code fence — as <mailto:x|x> / <http://x|x>. Undo it, or a stored
+        // email never matches a real one again.
+        const raw = fenced[1].replace(/<(?:mailto:)?([^|<>]+)(?:\|[^<>]*)?>/g, "$1");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.asks === "object") {
+          return { asks: parsed.asks, proposals: parsed.proposals ?? {} };
+        }
       } catch {
         // Malformed — keep looking at older messages.
       }
     }
-  } catch {
-    // No baseline is recoverable; worst case a duplicate ask.
+  } catch (err) {
+    // No baseline is recoverable; worst case a duplicate ask — but say why,
+    // or an auth/rate-limit failure is indistinguishable from an empty state.
+    console.error("[capture] state read failed:", (err as any)?.message);
   }
-  return { asks: {} };
+  return { asks: {}, proposals: {} };
 }
 
 async function writeCaptureState(state: CaptureState): Promise<void> {
@@ -126,8 +155,15 @@ async function writeCaptureState(state: CaptureState): Promise<void> {
   for (const [id, ask] of Object.entries(state.asks)) {
     if (new Date(ask.askedAt).getTime() >= cutoff || !ask.done) asks[id] = ask;
   }
+  // Proposals live longer: re-offering a company someone declined last week
+  // reads as nagging. A month of memory covers a booking cycle.
+  const proposalCutoff = Date.now() - 30 * DAY_MS;
+  const proposals: CaptureState["proposals"] = {};
+  for (const [id, p] of Object.entries(state.proposals ?? {})) {
+    if (new Date(p.askedAt).getTime() >= proposalCutoff) proposals[id] = p;
+  }
 
-  const payload = JSON.stringify({ run: new Date().toISOString(), asks });
+  const payload = JSON.stringify({ run: new Date().toISOString(), asks, proposals });
   await slack("chat.postMessage", {
     channel,
     text: `${STATE_TAG} | run: ${new Date().toISOString()}\n\`\`\`${payload}\`\`\``,
@@ -394,13 +430,25 @@ export async function handleThreadReply(
   const entry = Object.entries(state.asks).find(
     ([, ask]) => ask.ts === threadTs && !ask.done
   );
-  if (!entry) return { handled: false };
+  if (entry) {
+    const settled = await settleAsk(channel, entry[0], entry[1], state);
+    if (!settled) return { handled: false };
+    await writeCaptureState(state);
+    return { handled: true, club: settled.club };
+  }
 
-  const settled = await settleAsk(channel, entry[0], entry[1], state);
-  if (!settled) return { handled: false };
+  // Not an ask thread — maybe a deal proposal awaiting its `create`.
+  const proposal = Object.values(state.proposals ?? {}).find(
+    (p) => p.ts === threadTs && !p.done
+  );
+  if (proposal) {
+    const created = await settleProposal(channel, proposal, state);
+    if (!created) return { handled: false };
+    await writeCaptureState(state);
+    return { handled: true, club: created };
+  }
 
-  await writeCaptureState(state);
-  return { handled: true, club: settled.club };
+  return { handled: false };
 }
 
 /** Writes a name onto the person record behind an email. Returns the name written. */
@@ -431,17 +479,148 @@ async function nameContact(email: string, fullName: string): Promise<string | nu
   return fullName;
 }
 
+/**
+ * Offers a deal for booked calls whose company has none — the Felix case: a
+ * demo booked with FC Versailles while the pipeline has never heard of them.
+ * One per company, capped per run, `create` in the thread applies it.
+ */
+async function postProposals(
+  state: CaptureState,
+  result: CaptureRunResult
+): Promise<void> {
+  const channel = teamChannel();
+  if (!channel) return;
+
+  const [snapshot, meetings] = await Promise.all([getAttioSnapshot(), getMeetings()]);
+  const hasDeal = new Set(
+    snapshot.deals.map((d) => d.associatedCompanyId).filter(Boolean) as string[]
+  );
+  const companyName = new Map(snapshot.companies.map((c) => [c.id, c.name]));
+
+  const now = new Date().toISOString();
+  const weekAhead = new Date(Date.now() + 7 * DAY_MS).toISOString();
+  let posted = 0;
+
+  for (const m of meetings) {
+    if (posted >= 2) break;
+    if (m.kind !== "ecosystem" || m.startsAt <= now || m.startsAt > weekAhead) continue;
+    const companyId = m.companyIds.find((c) => companyName.has(c) && !hasDeal.has(c));
+    if (!companyId || state.proposals[companyId]) continue;
+
+    const name = companyName.get(companyId)!;
+    const day = new Date(m.startsAt).toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+    });
+    try {
+      const msg = await slack("chat.postMessage", {
+        channel,
+        text:
+          `:calendar: *${m.title.trim() || "Call"}* — ${day}, with *${name}*. ` +
+          `They have no deal in the pipeline.\n` +
+          `Reply \`create\` in this thread to add *${proposedDealName(name)}* in Demo / discovery. Ignore if it isn't a sales conversation.`,
+        unfurl_links: false,
+      });
+      state.proposals[companyId] = {
+        ts: msg.ts,
+        companyId,
+        companyName: name,
+        askedAt: new Date().toISOString(),
+      };
+      result.proposed.push({ company: name });
+      posted++;
+    } catch (err: any) {
+      result.errors.push(`proposal ${name}: ${err.message}`);
+    }
+  }
+}
+
+/** "FC Versailles - Q3 2026", matching the workspace's naming convention. */
+function proposedDealName(companyName: string): string {
+  const d = new Date();
+  return `${companyName} - Q${Math.ceil((d.getUTCMonth() + 1) / 3)} ${d.getUTCFullYear()}`;
+}
+
+async function settleProposal(
+  channel: string,
+  proposal: ProposalRecord,
+  state: CaptureState
+): Promise<string | null> {
+  const thread = await slack("conversations.replies", {
+    channel,
+    ts: proposal.ts,
+    limit: 20,
+  });
+  const wantsCreate = (thread.messages ?? [])
+    .slice(1)
+    .some((m: any) => !m.bot_id && /^\s*create\b/i.test(m.text ?? ""));
+  if (!wantsCreate) return null;
+
+  const dealName = proposedDealName(proposal.companyName);
+  await attioFetch("/objects/deals/records", {
+    method: "POST",
+    body: JSON.stringify({
+      data: {
+        values: {
+          name: dealName,
+          stage: "Demo / discovery",
+          associated_company: [
+            { target_object: "companies", target_record_id: proposal.companyId },
+          ],
+        },
+      },
+    }),
+  });
+  invalidateCaches();
+
+  await slack("chat.postMessage", {
+    channel,
+    thread_ts: proposal.ts,
+    text: `Created *${dealName}* in Demo / discovery. :white_check_mark:`,
+    unfurl_links: false,
+  });
+  state.proposals[proposal.companyId] = { ...proposal, done: true };
+  return dealName;
+}
+
 /** One capture run: harvest replies first, then post new asks, then persist. */
 export async function runCapture(): Promise<CaptureRunResult> {
-  const result: CaptureRunResult = { asked: [], replies: [], skipped: [], errors: [] };
+  const result: CaptureRunResult = {
+    asked: [], replies: [], proposed: [], created: [], skipped: [], errors: [],
+  };
   const state = await readCaptureState();
 
   // Replies before asks: a reply that arrived since the last run should be
   // saved even if this run then finds nothing new to ask about.
   await processReplies(state, result);
-  await postAsks(state, result);
 
-  if (result.asked.length > 0 || result.replies.length > 0) {
+  // Open proposals too — the cron is the safety net for `create` replies the
+  // instant path missed.
+  const channel = teamChannel();
+  if (channel) {
+    for (const p of Object.values(state.proposals ?? {})) {
+      if (p.done) continue;
+      try {
+        const created = await settleProposal(channel, p, state);
+        if (created) result.created.push({ deal: created });
+      } catch (err: any) {
+        result.errors.push(`proposal reply ${p.companyName}: ${err.message}`);
+      }
+    }
+  }
+
+  await postAsks(state, result);
+  await postProposals(state, result).catch((err) =>
+    result.errors.push(`proposals: ${err.message}`)
+  );
+
+  if (
+    result.asked.length > 0 ||
+    result.replies.length > 0 ||
+    result.proposed.length > 0 ||
+    result.created.length > 0
+  ) {
     try {
       await writeCaptureState(state);
     } catch (err: any) {

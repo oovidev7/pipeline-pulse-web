@@ -9,7 +9,7 @@
 // because two callers joined the same sources slightly differently.
 
 import { unstable_cache } from "next/cache";
-import { getComputedDealsResponse, getOpenTasks } from "./attio";
+import { getAttioSnapshot, getComputedDealsResponse, getOpenTasks } from "./attio";
 import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
 import { getDealContext, getMeetings } from "./deal-context";
@@ -51,6 +51,8 @@ export interface AgendaQueueItem {
 export interface UpcomingCall {
   at: string;
   title: string;
+  /** The company Attio recognises on the invite, when there is no deal yet. */
+  company: string | null;
   deal: DealRecord | null;
   /** The standing verdict on the deal, as one line of context. */
   verdict: string | null;
@@ -169,7 +171,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v5";
+const AGENDA_CACHE_VERSION = "v6";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -188,11 +190,13 @@ export async function buildAgenda(): Promise<Agenda> {
   const gmailByDeal = new Map(
     (activity?.entries ?? []).map((e: any) => [e.dealId, e.lastContactDate ?? null])
   );
-  const [context, metrics, allMeetings] = await Promise.all([
+  const [context, metrics, allMeetings, snapshot] = await Promise.all([
     getDealContext(gmailByDeal),
     buildMetrics(8).catch(() => null),
     getMeetings().catch(() => []),
+    getAttioSnapshot(),
   ]);
+  const companyNameById = new Map(snapshot.companies.map((c) => [c.id, c.name]));
 
   const signals: any[] = slack?.marketSignals?.signals ?? [];
   const open = deals.deals.filter((d) => !CLOSED_STAGES.includes(d.stage as any));
@@ -283,6 +287,9 @@ export async function buildAgenda(): Promise<Agenda> {
       return {
         at: m.startsAt,
         title: m.title || "Call",
+        company: deal
+          ? null
+          : m.companyIds.map((c) => companyNameById.get(c)).find(Boolean) ?? null,
         deal,
         verdict: deal ? context.get(deal.id)?.visibility.verdict ?? null : null,
         brief: brief?.brief ?? null,

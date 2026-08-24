@@ -74,6 +74,38 @@ function clubOf(name: string): string {
 }
 
 /**
+ * How long a meeting decision keeps a deal off the agenda. A parked deal
+ * without an explicit revisit date returns after two weeks; "still live"
+ * holds for one — the room just said so, and re-asking next Monday reads as
+ * not having listened.
+ */
+const PARK_DEFAULT_DAYS = 14;
+const STILL_LIVE_DAYS = 7;
+
+/**
+ * Reads the most recent meeting decision from `stall_notes` (the decision
+ * endpoint writes them dated, newest first) and returns when the deal should
+ * come back. Without this, parking a long-quiet deal is self-defeating: the
+ * "Parked" verdict itself trips the tension rule and the deal reappears on
+ * the very next build.
+ */
+function suppressedUntil(stallNotes: string | null): number | null {
+  const m = stallNotes
+    ?.split("\n")[0]
+    ?.match(/^(Still live|Parked|Marked lost) (\d{4}-\d{2}-\d{2})(?: — revisit (\d{4}-\d{2}-\d{2}))?/);
+  if (!m) return null;
+  const decidedAt = new Date(m[2]).getTime();
+  if (Number.isNaN(decidedAt)) return null;
+  if (m[1] === "Parked") {
+    return m[3]
+      ? new Date(m[3]).getTime()
+      : decidedAt + PARK_DEFAULT_DAYS * 86_400_000;
+  }
+  if (m[1] === "Still live") return decidedAt + STILL_LIVE_DAYS * 86_400_000;
+  return null; // "Marked lost" also changes stage; nothing to suppress.
+}
+
+/**
  * A recorded verdict that the deal's own state contradicts. Only fires where
  * someone wrote something down and then nothing happened — silence with no
  * verdict is the queue's job, not a decision.
@@ -152,9 +184,14 @@ export async function buildAgenda(): Promise<Agenda> {
   // there is nothing to decide about a deal nobody has any information on, and
   // they get asked about in the queue instead.
   const decisions: AgendaDecision[] = [];
+  const now = Date.now();
   for (const s of scored) {
     const signals = context.get(s.deal.id);
     if (!signals || signals.visibility.state === "dark") continue;
+
+    // The room already decided this one recently — honour it.
+    const until = suppressedUntil(s.deal.stallNotes);
+    if (until !== null && now < until) continue;
 
     const tension = findTension(s.deal, signals.visibility);
     const flagged = s.score >= RISK_ALERT_THRESHOLD;

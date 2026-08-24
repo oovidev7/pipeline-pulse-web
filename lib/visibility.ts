@@ -147,16 +147,16 @@ function describe(
 ): string {
   if (state === "active") {
     if (nextMeetingAt) return "Meeting booked — this one is live.";
-    return `Active — something reached us ${days === 0 ? "today" : `${days}d ago`}.`;
+    return `Active — last touch ${days === 0 ? "today" : `${days} days ago`}.`;
   }
 
-  // Deliberately phrased as what we captured, never as what happened. The
-  // channels we hold are named so the reader can judge the gap themselves.
-  const seen = channels.length ? channels.join(", ") : "nothing";
-  const window = days === null ? "ever" : `in ${days}d`;
+  // Deliberately phrased as what we logged, never as what happened — a call
+  // on WhatsApp we can't see is silence to us, not to the deal. Which
+  // channels we hold is detail for the deal page, not for a summary line.
+  const window = days === null ? "Nothing has ever been logged" : `Nothing logged for ${days} days`;
 
   if (state === "explained") {
-    return `No activity captured ${window} (we see: ${seen}). Recorded verdict: “${verdict}”.`;
+    return `${window}. Last word: “${verdict}”.`;
   }
-  return `No activity captured ${window} (we see: ${seen}) and no note explaining why — worth a check.`;
+  return `${window}, and no note says why — worth a check.`;
 }

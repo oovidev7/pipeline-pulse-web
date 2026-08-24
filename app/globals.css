@@ -150,6 +150,11 @@ section:last-of-type { border-bottom: 0; }
 
 .quote { margin-top: 12px; padding: 11px 14px; background: var(--gray-100); border-radius: 8px; font-size: 13px; color: var(--zinc-600); line-height: 1.6; }
 .quote b { color: var(--zinc-900); font-weight: 600; }
+.quote-label {
+  display: block; margin-bottom: 4px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em; color: var(--zinc-400);
+}
 .tension {
   border-left: 2px solid var(--destructive); background: var(--destructive-soft);
   padding: 11px 14px; border-radius: 0 8px 8px 0; margin-top: 12px;

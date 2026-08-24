@@ -138,10 +138,19 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * `revalidateTag("agenda")` runs after any decision is recorded, so the page
  * never shows someone their own change as not having happened.
  */
-export const getAgenda = unstable_cache(() => buildAgenda(), ["agenda"], {
-  revalidate: 3600,
-  tags: ["agenda"],
-});
+/**
+ * Bump whenever the agenda's *meaning* changes. Vercel's data cache survives
+ * deployments, so without this a new build serves the old build's cached
+ * agenda under the new labels — which is how "last week" once rendered with
+ * the in-progress week's zeros.
+ */
+const AGENDA_CACHE_VERSION = "v2";
+
+export const getAgenda = unstable_cache(
+  () => buildAgenda(),
+  ["agenda", AGENDA_CACHE_VERSION],
+  { revalidate: 3600, tags: ["agenda"] }
+);
 
 export async function buildAgenda(): Promise<Agenda> {
   const [deals, tasks, slack, activity] = await Promise.all([

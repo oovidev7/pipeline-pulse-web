@@ -7,6 +7,9 @@ import type { Agenda, AgendaDecision } from "@/lib/agenda";
 const GBP = (n: number) =>
   "£" + Math.round(n || 0).toLocaleString("en-GB");
 
+const clamp = (s: string, n: number) =>
+  s.length <= n ? s : s.slice(0, n).replace(/\s+\S*$/, "") + "…";
+
 const DATE = (iso: string) =>
   new Date(iso).toLocaleDateString("en-GB", {
     weekday: "short",
@@ -287,6 +290,22 @@ export default function Agenda() {
           <div className="eyebrow">
             <span className="dot" />
             <span>No visibility · alive or dead?</span>
+            <Help>
+              <p>
+                Nothing has been logged for these deals on any channel we can
+                read — no email, no meeting, no note, no WhatsApp touch — and
+                nobody has written down why.
+              </p>
+              <p>
+                That is <b>not</b> the same as the deal being dead: a
+                conversation may be happening somewhere we can't see. Which is
+                exactly why the question is asked instead of a score assigned.
+              </p>
+              <p>
+                One click answers it, and the answer is written to Attio —
+                so each deal only comes back if it goes quiet again.
+              </p>
+            </Help>
           </div>
           <p className="note" style={{ marginTop: 10 }}>
             {data.queueTotal} deals where nothing has been captured on any channel and no note explains
@@ -305,12 +324,13 @@ export default function Agenda() {
                     <Link href={`/deal/${q.deal.id}`}>{q.deal.name}</Link>
                   </div>
                   <div className="qmeta">
-                    {q.deal.stage} · sees {q.channels.length ? q.channels.join(", ") : "nothing"}
+                    {q.deal.stage} ·{" "}
+                    {q.days === null
+                      ? "nothing has ever been logged"
+                      : `nothing logged for ${q.days} days`}
                   </div>
                 </div>
-                <div className="qval">
-                  {q.days === null ? "never" : `${q.days}d`} · {GBP(q.deal.value)}
-                </div>
+                <div className="qval">{GBP(q.deal.value)}</div>
                 <div className="qbtns">
                   {settled[q.deal.id] ? (
                     <span className="decided">{settled[q.deal.id]}</span>
@@ -384,11 +404,25 @@ function DecisionItem({
           </div>
 
           {visibility.verdict && (
-            <div className="quote">Recorded verdict — <b>“{visibility.verdict}”</b></div>
+            <div className="quote">
+              <span className="quote-label">The last word on this deal</span>
+              <b>“{visibility.verdict}”</b>
+            </div>
           )}
           {lastConversation?.excerpt && (
             <div className="quote">
-              <b>{lastConversation.title}</b> — {lastConversation.excerpt}
+              <span className="quote-label">
+                Last conversation ·{" "}
+                {new Date(lastConversation.createdAt).toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                })}
+                {" · "}
+                <Link href={`/deal/${deal.id}`} style={{ textDecoration: "underline" }}>
+                  read in full
+                </Link>
+              </span>
+              {clamp(lastConversation.excerpt, 170)}
             </div>
           )}
           {tension && <div className="tension">{tension}</div>}

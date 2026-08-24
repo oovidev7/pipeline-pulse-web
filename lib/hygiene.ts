@@ -39,9 +39,23 @@ function internalPattern(): RegExp {
   return new RegExp(`@(${alts})`, "i");
 }
 
-function attioUrl(object: string, id: string): string | null {
+/**
+ * Attio's record URLs are not one pattern: standard objects use a singular
+ * path (`/person/{id}`, `/company/{id}`) while custom objects like deals use
+ * `/{slug}/record/{id}`. Verified against the API's own `web_url` field —
+ * guessing one shape for all three sent every people/company link to the
+ * Attio homepage.
+ */
+function attioUrl(object: "people" | "companies" | "deals", id: string): string | null {
   const slug = process.env.ATTIO_WORKSPACE_SLUG;
-  return slug ? `https://app.attio.com/${slug}/${object}/record/${id}` : null;
+  if (!slug) return null;
+  const path =
+    object === "people"
+      ? `person/${id}`
+      : object === "companies"
+        ? `company/${id}`
+        : `deals/record/${id}`;
+  return `https://app.attio.com/${slug}/${path}`;
 }
 
 function link(label: string, url: string | null): string {

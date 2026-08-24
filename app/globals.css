@@ -101,6 +101,34 @@ section:last-of-type { border-bottom: 0; }
 .delta.down { color: var(--destructive); }
 .note { margin-top: 14px; font-size: 13px; color: var(--zinc-600); line-height: 1.6; max-width: 78ch; }
 
+/* --- inline help -------------------------------------------------------- */
+.help { display: inline-block; position: relative; }
+.help summary {
+  list-style: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 999px;
+  border: 1px solid var(--zinc-300); color: var(--zinc-500);
+  font-family: var(--font-sans); font-size: 10px; font-weight: 600;
+  letter-spacing: 0; text-transform: none;
+  transition: all .15s;
+}
+.help summary::-webkit-details-marker { display: none; }
+.help summary:hover { border-color: var(--zinc-500); color: var(--zinc-700); }
+.help[open] summary { background: var(--zinc-900); border-color: var(--zinc-900); color: #fff; }
+.help-body {
+  position: absolute; z-index: 20; top: 22px; left: -8px;
+  width: min(420px, 78vw);
+  background: #fff; border: 1px solid var(--zinc-200); border-radius: 10px;
+  box-shadow: var(--shadow-floating);
+  padding: 12px 14px;
+  font-family: var(--font-sans); font-size: 12.5px; line-height: 1.55;
+  color: var(--zinc-600);
+  letter-spacing: 0; text-transform: none; font-weight: 400;
+}
+.help-body p { margin: 0 0 8px; }
+.help-body p:last-child { margin-bottom: 0; }
+.help-body b { color: var(--zinc-900); font-weight: 600; }
+
 /* --- coverage strip ---------------------------------------------------- */
 .coverage { display: flex; gap: 28px; flex-wrap: wrap; }
 .cov-item .cov-label { font-size: 11px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--zinc-500); }

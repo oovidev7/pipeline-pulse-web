@@ -18,6 +18,20 @@ const DATE = (iso: string) =>
 type Decision = "live" | "park" | "dead";
 
 /**
+ * A small "?" that expands an explanation in place. Click, not hover — this
+ * page is read in meetings and on phones, where tooltips don't exist. Native
+ * details/summary so it costs no state and closes itself sensibly.
+ */
+function Help({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="help">
+      <summary aria-label="What does this mean?">?</summary>
+      <div className="help-body">{children}</div>
+    </details>
+  );
+}
+
+/**
  * The weekly agenda.
  *
  * Ordered, finite, one decision per item — the opposite of the dashboard this
@@ -90,12 +104,36 @@ export default function Agenda() {
   }
   if (!data) return <div className="panel"><div className="loading">Loading the week…</div></div>;
 
-  const stats: { label: string; key: keyof NonNullable<Agenda["current"]> }[] = [
-    { label: "Deals reaching demo", key: "dealsReachingDemo" },
-    { label: "Discovery calls", key: "discoveryCalls" },
-    { label: "Progression calls", key: "progressionCalls" },
-    { label: "Conversations", key: "conversations" },
-    { label: "Ecosystem meetings", key: "ecosystemMeetings" },
+  const stats: {
+    label: string;
+    key: keyof NonNullable<Agenda["current"]>;
+    help: string;
+  }[] = [
+    {
+      label: "Deals reaching demo",
+      key: "dealsReachingDemo",
+      help: "Deals that moved into the Demo / discovery stage this week — new opportunities actually created. The result, where discovery calls are the effort.",
+    },
+    {
+      label: "Discovery calls",
+      key: "discoveryCalls",
+      help: "Calls held with clubs still early on (Prospecting or Demo) — time spent winning new business.",
+    },
+    {
+      label: "Progression calls",
+      key: "progressionCalls",
+      help: "Calls held with clubs further along (Qualified, Trialling, Proposal) — time spent advancing deals we already have.",
+    },
+    {
+      label: "Conversations",
+      key: "conversations",
+      help: "People who engaged with us this week outside of calls — LinkedIn and WhatsApp threads, logged notes.",
+    },
+    {
+      label: "Ecosystem meetings",
+      key: "ecosystemMeetings",
+      help: "External meetings that aren't with clubs — investors, advisory firms, multi-club groups, intermediaries. Real work, counted separately so a heavy networking week never looks like pipeline.",
+    },
   ];
 
   return (
@@ -107,9 +145,9 @@ export default function Agenda() {
         </div>
         <div className="progress"><span style={{ width: `${pct}%` }} /></div>
         <div className="progress-label">
-          {done} of {total} decided
-          {data.queueTotal > data.queue.length &&
-            ` · ${data.queueTotal - data.queue.length} more roll to next week`}
+          {done} of {total} settled · {data.decisions.length} decision
+          {data.decisions.length === 1 ? "" : "s"} + {data.queue.length} quick check
+          {data.queue.length === 1 ? "" : "s"} — done when the bar is full
         </div>
       </div>
 
@@ -117,13 +155,27 @@ export default function Agenda() {
 
       {/* ---------------------------- numbers ---------------------------- */}
       <section>
-        <div className="eyebrow"><span className="dot" /><span>The week · vs last week</span></div>
+        <div className="eyebrow">
+          <span className="dot" />
+          <span>The week · vs last week</span>
+          <Help>
+            {stats.map((s) => (
+              <p key={s.key}>
+                <b>{s.label}</b> — {s.help}
+              </p>
+            ))}
+            <p>
+              All five come straight from Attio — stage history, the calendar,
+              and logged notes. Nobody types these numbers in.
+            </p>
+          </Help>
+        </div>
         {data.current ? (
           <div className="stats">
-            {stats.map(({ label, key }) => {
+            {stats.map(({ label, key, help }) => {
               const d = delta(key);
               return (
-                <div className="stat" key={key}>
+                <div className="stat" key={key} title={help}>
                   <div className="stat-label">{label}</div>
                   <div className="stat-value">{data.current![key] as number}</div>
                   <div className={`delta ${d && d > 0 ? "up" : d && d < 0 ? "down" : ""}`}>
@@ -137,6 +189,23 @@ export default function Agenda() {
           <p className="note">No weekly figures yet.</p>
         )}
         <div className="coverage" style={{ marginTop: 20 }}>
+          <div className="cov-item" style={{ alignSelf: "center" }}>
+            <Help>
+              <p>
+                <b>Gap to target</b> — the commercial target minus what's been
+                won this year.
+              </p>
+              <p>
+                <b>Open</b> — every open deal's value added up. Optimistic by
+                nature: most deals don't close.
+              </p>
+              <p>
+                <b>Weighted</b> — the open value multiplied by our actual win
+                rate so far. The honest version of the number above; if it's
+                below the gap, the pipeline isn't big enough yet.
+              </p>
+            </Help>
+          </div>
           <div className="cov-item">
             <div className="cov-label">Gap to target</div>
             <div className="cov-value">{GBP(data.coverage.gap)}</div>
@@ -175,6 +244,26 @@ export default function Agenda() {
         <div className="eyebrow">
           <span className="dot" />
           <span>Decisions · {data.decisions.length} need a call today</span>
+          <Help>
+            <p>
+              A deal lands here when its <b>risk score reaches 70</b>, or when a
+              note someone wrote contradicts what the deal is doing (the red
+              box).
+            </p>
+            <p>
+              <b>The score is a sum of the red chips.</b> Each chip is one
+              problem with a fixed weight — no contacts reached is worth more
+              than an overdue task — and problems that persist grow by about a
+              point per week, so a deal left to rot climbs the list on its own.
+              Hover the score to see the arithmetic.
+            </p>
+            <p>
+              The buttons write straight to Attio: <b>Park it</b> takes the deal
+              off this list until its revisit date (two weeks by default),{" "}
+              <b>Still live</b> holds it off for one, and <b>Mark lost</b> moves
+              the stage after asking.
+            </p>
+          </Help>
         </div>
         {data.decisions.length === 0 && (
           <p className="note">Nothing is flagged and no recorded verdict is contradicted. Skip to the queue.</p>
@@ -203,6 +292,10 @@ export default function Agenda() {
             {data.queueTotal} deals where nothing has been captured on any channel and no note explains
             why. These are questions, not findings — several are probably fine. One line each and they
             stop coming back.
+            {data.queueTotal > data.queue.length &&
+              ` Showing the ${data.queue.length} biggest by value; the other ${
+                data.queueTotal - data.queue.length
+              } wait for next week so this never becomes a wall.`}
           </p>
           <div className="queue">
             {data.queue.map((q) => (
@@ -314,7 +407,15 @@ function DecisionItem({
             <button className="btn" disabled={busy}
               onClick={() => onDecide(deal.id, "dead", "Marked lost")}>Mark lost</button>
             <Link href={`/deal/${deal.id}`} className="btn">Open</Link>
-            <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>score {score}</span>
+            <span
+              className="muted"
+              style={{ fontSize: 12, marginLeft: 4, cursor: "help" }}
+              title={
+                factors
+                  .map((f) => `${f.weight >= 0 ? "+" : ""}${f.weight}  ${f.label}`)
+                  .join("\n") + `\n= ${score} (flagged at 70)`
+              }
+            >score {score}</span>
           </>
         )}
       </div>

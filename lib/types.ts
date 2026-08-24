@@ -105,6 +105,12 @@ export interface PersonRecord {
    */
   lastCalendarInteraction: string | null;
   nextCalendarInteraction: string | null;
+  /**
+   * Profile URL, written by the Attio LinkedIn Bridge extension when a thread
+   * is captured. Often an opaque /in/ACoA… id rather than a vanity URL — it
+   * still resolves; prefer it over a name search whenever present.
+   */
+  linkedin: string | null;
 }
 
 export interface OpenTask {

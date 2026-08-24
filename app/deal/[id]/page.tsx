@@ -212,10 +212,18 @@ export default function DealPage() {
                 </div>
                 <div className="p-acts">
                   {c.email && <a className="chip" href={`mailto:${c.email}`}>Email</a>}
-                  <a className="chip" target="_blank" rel="noreferrer"
-                     href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
-                       `${c.name === "Unknown" ? "" : c.name} ${deal.name.replace(/\s+[-–]\s+.*$/, "")}`.trim()
-                     )}`}>Find on LinkedIn</a>
+                  {/* The bridge extension fills `linkedin` for captured threads;
+                      a real profile link beats a name search whenever it exists. */}
+                  {c.linkedin ? (
+                    <a className="chip" target="_blank" rel="noreferrer" href={c.linkedin}>
+                      Open LinkedIn
+                    </a>
+                  ) : (
+                    <a className="chip" target="_blank" rel="noreferrer"
+                       href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+                         `${c.name === "Unknown" ? "" : c.name} ${deal.name.replace(/\s+[-–]\s+.*$/, "")}`.trim()
+                       )}`}>Find on LinkedIn</a>
+                  )}
                 </div>
               </div>
             ))}

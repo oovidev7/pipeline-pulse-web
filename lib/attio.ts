@@ -267,6 +267,7 @@ function normalizePerson(record: any): PersonRecord {
       getAttrValue(record, "last_calendar_interaction")?.interacted_at ?? null,
     nextCalendarInteraction:
       getAttrValue(record, "next_calendar_interaction")?.interacted_at ?? null,
+    linkedin: getAttrString(record, "linkedin"),
     connectionStrength:
       getAttrValue(record, "strongest_connection_strength")?.option?.title ?? null,
     strongestConnectionUserId:

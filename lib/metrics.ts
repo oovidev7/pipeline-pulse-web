@@ -161,7 +161,12 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
 
   const companyName = new Map(snapshot.companies.map((c) => [c.id, c.name]));
   for (const m of heldMeetings) {
-    if (m.kind === "ecosystem" || m.kind === "unmatched") {
+    // "unmatched" — an external attendee nobody in Attio has ever heard of —
+    // is deliberately counted nowhere. A calendar holds dinners, five-a-side
+    // and blockers with guests on personal addresses; a meeting only becomes
+    // work once the CRM recognises the counterpart.
+    if (m.kind === "unmatched") continue;
+    if (m.kind === "ecosystem") {
       const withWhom =
         m.companyIds.map((c) => companyName.get(c)).find(Boolean) ??
         m.externalEmails[0]?.split("@")[1] ??

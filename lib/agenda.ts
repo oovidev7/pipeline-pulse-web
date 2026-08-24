@@ -169,7 +169,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v4";
+const AGENDA_CACHE_VERSION = "v5";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -261,12 +261,16 @@ export async function buildAgenda(): Promise<Agenda> {
   const nowIso = new Date().toISOString();
   const weekAhead = new Date(Date.now() + 7 * 86_400_000).toISOString();
   const briefs: any[] = slack?.callBriefs?.briefs ?? [];
-  // Every external call, not just pipeline ones — the diary is what it is,
-  // and "Felix x Danny (no deal yet)" is exactly the kind of thing worth
-  // seeing coming. Internal syncs stay out.
+  // External calls the CRM recognises — pipeline clubs and known ecosystem
+  // counterparts. "Felix x Danny (no deal yet)" is worth seeing coming;
+  // dinners and blockers with a guest on a personal address are not, which is
+  // why an unrecognised external attendee is not enough to qualify.
   const upcoming: UpcomingCall[] = allMeetings
     .filter(
-      (m) => m.kind !== "internal" && m.startsAt > nowIso && m.startsAt <= weekAhead
+      (m) =>
+        (m.kind === "client" || m.kind === "ecosystem") &&
+        m.startsAt > nowIso &&
+        m.startsAt <= weekAhead
     )
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 10)

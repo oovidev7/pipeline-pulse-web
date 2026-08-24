@@ -138,7 +138,7 @@ export default function Agenda() {
     {
       label: "Ecosystem meetings",
       key: "ecosystemMeetings",
-      help: "External meetings that aren't with clubs — investors, advisory firms, multi-club groups, intermediaries. Real work, counted separately so a heavy networking week never looks like pipeline.",
+      help: "External meetings with organisations Attio recognises but that aren't clubs — investors, advisory firms, multi-club groups, intermediaries. Counted separately so a heavy networking week never looks like pipeline. Calendar entries with guests the CRM doesn't know (dinners, blockers) count nowhere.",
     },
   ];
 
@@ -415,7 +415,7 @@ export default function Agenda() {
         <section>
           <div className="eyebrow">
             <span className="dot" />
-            <span>No visibility · alive or dead?</span>
+            <span>Quick checks · alive or dead?</span>
             <Help>
               <p>
                 Nothing has been logged for these deals on any channel we can

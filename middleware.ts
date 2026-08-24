@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   "/api/auth/login",
   "/api/alerts/run",
   "/api/warm",
+  "/api/capture/run",
 ];
 
 export async function middleware(req: NextRequest) {

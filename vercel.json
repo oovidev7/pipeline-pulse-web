@@ -7,6 +7,10 @@
     {
       "path": "/api/warm",
       "schedule": "5 6-19 * * 1-5"
+    },
+    {
+      "path": "/api/capture/run",
+      "schedule": "20 8-18 * * 1-5"
     }
   ]
 }

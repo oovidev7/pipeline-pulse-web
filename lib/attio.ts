@@ -362,8 +362,15 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
     const companyPeople = d.associatedCompanyId
       ? peopleByCompany.get(d.associatedCompanyId) ?? []
       : [];
+    // Union, not either/or. Taking the direct links *instead of* the company's
+    // people hid 122 contacts across 32 open deals — 23 of them people who had
+    // actually replied — because a single direct link suppressed the whole
+    // company card. Thirteen deals were scored "single-threaded" or "never
+    // reached" while someone at the club was mid-conversation with us.
     const contactsViaCompany = d.personIds.length === 0 && companyPeople.length > 0;
-    const personIds = contactsViaCompany ? companyPeople.map((p) => p.id) : d.personIds;
+    const personIds = [
+      ...new Set([...d.personIds, ...companyPeople.map((p) => p.id)]),
+    ];
     const contacts = personIds
       .map((pid) => peopleById.get(pid))
       .filter((p): p is PersonRecord => Boolean(p));

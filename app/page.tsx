@@ -1,324 +1,323 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { DealRecord, DealsApiResponse, TasksApiResponse } from "@/lib/types";
-import type { DealContext } from "@/components/DealDetail";
-import OpenTasks from "@/components/OpenTasks";
-import StageSnapshot from "@/components/StageSnapshot";
-import FilteredDeals from "@/components/FilteredDeals";
-import StageTrend from "@/components/StageTrend";
-import MarketSignals from "@/components/MarketSignals";
-import CoverageHeader from "@/components/CoverageHeader";
-import FocusList from "@/components/FocusList";
-import ThisWeek from "@/components/ThisWeek";
-import CallsWeek from "@/components/CallsWeek";
-import Roundtable from "@/components/Roundtable";
-import { rankDeals, scoreDeal } from "@/lib/risk";
-import { CLOSED_STAGES } from "@/lib/types";
-import OwnerPerformance from "@/components/OwnerPerformance";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { Agenda, AgendaDecision } from "@/lib/agenda";
 
-type SectionKey =
-  | "deals"
-  | "calendar"
-  | "contactActivity"
-  | "slack"
-  | "tasks"
-  | "roundtable"
-  | "dealContext";
+const GBP = (n: number) =>
+  "£" + Math.round(n || 0).toLocaleString("en-GB");
 
-type SectionErrors = Partial<Record<SectionKey, string>>;
+const DATE = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 
-export default function Home() {
-  const [deals, setDeals] = useState<DealsApiResponse | null>(null);
-  const [calendar, setCalendar] = useState<any | null>(null);
-  const [contactActivity, setContactActivity] = useState<any | null>(null);
-  const [slack, setSlack] = useState<any | null>(null);
-  const [tasks, setTasks] = useState<TasksApiResponse | null>(null);
-  const [roundtable, setRoundtable] = useState<any | null>(null);
-  /** Per-deal visibility: what we can actually see, keyed by deal id. */
-  const [dealCtx, setDealCtx] = useState<any | null>(null);
-  const [errors, setErrors] = useState<SectionErrors>({});
-  const [refreshing, setRefreshing] = useState(false);
-  const [filterStage, setFilterStage] = useState<string | null>(null);
+type Decision = "live" | "park" | "dead";
 
-  /**
-   * Fetches one section. A failed request records an error for that section
-   * only — the error payload is never written into the data state, so one dead
-   * API degrades its own card instead of crashing the dashboard.
-   */
-  const loadSection = useCallback(
-    async <T,>(key: SectionKey, url: string, set: (value: T) => void) => {
-      try {
-        const res = await fetch(url);
-        const body = await res.json().catch(() => null);
-        if (!res.ok || body?.error) {
-          throw new Error(body?.error || `Request failed (${res.status})`);
-        }
-        set(body as T);
-        setErrors((e) => {
-          if (!e[key]) return e;
-          const next = { ...e };
-          delete next[key];
-          return next;
-        });
-      } catch (err: any) {
-        console.error(`${key} fetch failed`, err);
-        setErrors((e) => ({ ...e, [key]: err?.message || "Failed to load" }));
-      }
-    },
-    []
-  );
+/**
+ * The weekly agenda.
+ *
+ * Ordered, finite, one decision per item — the opposite of the dashboard this
+ * replaced, which had nine sections in no order and no notion of being
+ * finished. A meeting run off a browsing surface ambles because the surface
+ * gives it nowhere to stop.
+ */
+export default function Agenda() {
+  const [data, setData] = useState<Agenda | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  /** Decisions taken in this session, so progress is visible as you go. */
+  const [settled, setSettled] = useState<Record<string, string>>({});
 
-  // Each section loads and renders independently rather than waiting on the slowest.
-  const loadAll = useCallback(
-    (bust: boolean) => {
-      const qs = bust ? "?refresh=1" : "";
-      return Promise.all([
-        loadSection<DealsApiResponse>("deals", `/api/deals${qs}`, setDeals),
-        loadSection<any>("calendar", `/api/calendar${qs}`, setCalendar),
-        loadSection<any>(
-          "contactActivity",
-          `/api/contact-activity${qs}`,
-          setContactActivity
-        ),
-        loadSection<any>("slack", `/api/slack${qs}`, setSlack),
-        loadSection<TasksApiResponse>("tasks", `/api/tasks${qs}`, setTasks),
-        loadSection<any>("roundtable", `/api/roundtable${qs}`, setRoundtable),
-        loadSection<any>("dealContext", `/api/deal-context${qs}`, setDealCtx),
-      ]);
-    },
-    [loadSection]
-  );
-
-  useEffect(() => {
-    loadAll(false);
-  }, [loadAll]);
-
-  /**
-   * Refetches deal-derived data after a write (stage move, note). The write
-   * already invalidated the server caches, so a plain GET recomputes.
-   */
-  const refreshDeals = useCallback(() => {
-    loadSection<DealsApiResponse>("deals", "/api/deals", setDeals);
-  }, [loadSection]);
-
-  /** Refetches tasks after a task write (create, complete, reschedule, delete). */
-  const refreshTasks = useCallback(() => {
-    loadSection<TasksApiResponse>("tasks", "/api/tasks", setTasks);
-  }, [loadSection]);
-
-  async function handleRefresh() {
-    setRefreshing(true);
+  const load = useCallback(async (bust = false) => {
     try {
-      await loadAll(true);
-    } finally {
-      setRefreshing(false);
+      const res = await fetch(`/api/agenda${bust ? "?refresh=1" : ""}`);
+      const body = await res.json();
+      if (!res.ok || body?.error) throw new Error(body?.error || `Failed (${res.status})`);
+      setData(body);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || "Could not load the agenda");
     }
-  }
+  }, []);
 
-  // Market signals name a club ("Nottingham Forest"); deals are named
-  // "Nottingham Forest - Q3 2026". Match on the deal name's leading segment so a
-  // signal can show whether that club is already in the pipeline.
-  const dealsByClub = new Map<
-    string,
-    { id: string; name: string; stage: string; ownerName: string | null }
-  >();
-  for (const d of deals?.deals ?? []) {
-    const club = d.name.split(/\s+[-–]\s+/)[0].trim().toLowerCase();
-    if (club && !dealsByClub.has(club)) {
-      dealsByClub.set(club, {
-        id: d.id,
-        name: d.name,
-        stage: d.stage,
-        ownerName: d.ownerName,
+  useEffect(() => { load(); }, [load]);
+
+  const decide = async (dealId: string, decision: Decision, label: string) => {
+    // "Dead" moves the deal to Lost in Attio, so it asks first.
+    if (decision === "dead" && !confirm("Mark this deal Lost in Attio?")) return;
+    setBusy(dealId);
+    try {
+      const res = await fetch("/api/deal-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dealId, decision }),
       });
+      const body = await res.json();
+      if (!res.ok || body?.error) throw new Error(body?.error || "Write failed");
+      setSettled((s) => ({ ...s, [dealId]: label }));
+    } catch (err: any) {
+      setError(err?.message || "Could not record that decision");
+    } finally {
+      setBusy(null);
     }
-  }
-
-  /**
-   * Joins one deal to everything the connectors know about it. Called lazily
-   * when a row is expanded, so the joins only run for rows actually opened.
-   */
-  const dealContext = (deal: DealRecord): DealContext => {
-    const club = deal.name.split(/\s+[-–]\s+/)[0].trim().toLowerCase();
-    const matchesClub = (value: string | null | undefined) =>
-      Boolean(value && value.trim().toLowerCase() === club);
-
-    return {
-      activity: (contactActivity?.entries ?? []).find(
-        (e: any) => e.dealId === deal.id
-      ),
-      calls: (calendar?.matched ?? []).filter((c: any) => c.dealId === deal.id),
-      tasks: (tasks?.tasks ?? []).filter((t) => t.dealId === deal.id),
-      signal: (slack?.marketSignals?.signals ?? []).find((s: any) =>
-        matchesClub(s.club)
-      ),
-      brief: (slack?.callBriefs?.briefs ?? []).find((b: any) =>
-        matchesClub(b.club)
-      ),
-      meetings: (slack?.meetingNotes?.notes ?? []).filter((m: any) =>
-        matchesClub(m.club)
-      ),
-      benchmark:
-        deals?.stageBenchmarks.find((b) => b.stage === deal.stage) ?? null,
-      visibility: dealCtx?.context?.[deal.id]?.visibility ?? null,
-      lastConversation: dealCtx?.context?.[deal.id]?.lastConversation ?? null,
-    };
   };
 
-  // Composite risk ranking over open deals, joining every source the page has.
-  const rankedRisk = deals
-    ? rankDeals(
-        deals.deals
-          .filter((d) => !CLOSED_STAGES.includes(d.stage as any))
-          .map((d) => {
-            const ctx = dealContext(d);
-            return scoreDeal(d, {
-              lastContactDate: ctx.activity?.lastContactDate ?? null,
-              direction: ctx.activity?.direction ?? null,
-              hasUpcomingCall: (ctx.calls?.length ?? 0) > 0,
-              overdueTaskCount: (ctx.tasks ?? []).filter((t) => t.overdue).length,
-              signalDate: ctx.signal?.source_date ?? null,
-              benchmark: ctx.benchmark,
-              visibility: ctx.visibility,
-            });
-          })
-          // Keep zero-scored deals that still have something to say — a deal we
-          // can't see scores nothing but is precisely the one worth surfacing.
-          .filter((s) => s.score > 0 || s.factors.length > 0)
-      )
-    : null;
+  const total = (data?.decisions.length ?? 0) + (data?.queue.length ?? 0);
+  const done = Object.keys(settled).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
 
-  // Same scores keyed by deal id, so the per-stage lists show identical chips.
-  const riskById = new Map((rankedRisk ?? []).map((s) => [s.deal.id, s]));
+  const delta = useMemo(() => {
+    if (!data?.current || !data?.previous) return () => null;
+    return (key: keyof NonNullable<Agenda["current"]>) => {
+      const now = data.current![key] as number;
+      const before = data.previous![key] as number;
+      if (typeof now !== "number" || typeof before !== "number") return null;
+      return now - before;
+    };
+  }, [data]);
 
-  const cachedTime = deals?.cachedAt
-    ? new Date(deals.cachedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : null;
+  if (error && !data) {
+    return (
+      <div className="panel">
+        <div className="head"><h1>Sales weekly</h1></div>
+        <div className="err">{error}</div>
+      </div>
+    );
+  }
+  if (!data) return <div className="panel"><div className="loading">Loading the week…</div></div>;
+
+  const stats: { label: string; key: keyof NonNullable<Agenda["current"]> }[] = [
+    { label: "Deals reaching demo", key: "dealsReachingDemo" },
+    { label: "Discovery calls", key: "discoveryCalls" },
+    { label: "Progression calls", key: "progressionCalls" },
+    { label: "Conversations", key: "conversations" },
+    { label: "Ecosystem meetings", key: "ecosystemMeetings" },
+  ];
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <p style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>Pipeline Pulse</p>
-        <div className="header-actions">
-          <button className="reload" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
+    <div className="panel">
+      <div className="head">
+        <div className="head-top">
+          <h1>Sales weekly</h1>
+          <div className="head-meta">{DATE(data.weekOf)}</div>
+        </div>
+        <div className="progress"><span style={{ width: `${pct}%` }} /></div>
+        <div className="progress-label">
+          {done} of {total} decided
+          {data.queueTotal > data.queue.length &&
+            ` · ${data.queueTotal - data.queue.length} more roll to next week`}
         </div>
       </div>
-      <p className="muted" style={{ fontSize: 13, margin: "0 0 1rem" }}>
-        Sentrum sales dashboard {cachedTime ? `· as of ${cachedTime}` : ""}
-      </p>
 
-      <div className="section">
-        <CoverageHeader
-          pipelineHealth={deals?.pipelineHealth ?? null}
-          stageValues={deals?.stageValues ?? null}
-          targetGBP={slack?.latest?.commercial_target_gbp ?? null}
-          wonValue={deals?.stageValues?.["Won 🎉"] ?? 0}
-        />
-      </div>
+      {error && <div className="err">{error}</div>}
 
-      <div className="section">
-        <FocusList
-          ranked={rankedRisk}
-          contextFor={dealContext}
-          onDealChanged={refreshDeals}
-          error={errors.deals}
-        />
-      </div>
-
-      <div className="section">
-        <ThisWeek
-          movement={deals?.movement ?? null}
-          history={slack?.history}
-          stalledCount={deals?.pipelineHealth.stalledDealsCount ?? null}
-          latestWeek={slack?.latest ?? null}
-          prevWeek={slack?.previous ?? null}
-          signals={slack?.marketSignals ?? null}
-          briefs={slack?.callBriefs ?? null}
-          tasks={tasks}
-          followUpsCount={contactActivity?.followUpsNeeded?.length ?? null}
-          newConversations={deals?.newConversations ?? []}
-          error={errors.deals}
-        />
-      </div>
-
-      <div className="section">
-        <CallsWeek
-          calendar={calendar}
-          briefsData={slack?.callBriefs ?? null}
-          calendarError={errors.calendar}
-          briefsError={errors.slack}
-        />
-      </div>
-
-      <div className="section">
-        <StageSnapshot
-          stageSnapshot={deals?.stageSnapshot ?? null}
-          stageValues={deals?.stageValues ?? null}
-          activeStage={filterStage}
-          onSelectStage={(stage) =>
-            setFilterStage((current) => (current === stage ? null : stage))
-          }
-          error={errors.deals}
-        />
-        {slack?.history?.length > 0 && (
-          <div className="card" style={{ marginTop: 12 }}>
-            <StageTrend history={slack.history} />
+      {/* ---------------------------- numbers ---------------------------- */}
+      <section>
+        <div className="eyebrow"><span className="dot" /><span>The week · vs last week</span></div>
+        {data.current ? (
+          <div className="stats">
+            {stats.map(({ label, key }) => {
+              const d = delta(key);
+              return (
+                <div className="stat" key={key}>
+                  <div className="stat-label">{label}</div>
+                  <div className="stat-value">{data.current![key] as number}</div>
+                  <div className={`delta ${d && d > 0 ? "up" : d && d < 0 ? "down" : ""}`}>
+                    {d === null ? "—" : d === 0 ? "no change" : d > 0 ? `+${d}` : `${d}`}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        ) : (
+          <p className="note">No weekly figures yet.</p>
         )}
-      </div>
-
-      {filterStage && deals && (
-        <div className="section">
-          <FilteredDeals
-            stage={filterStage}
-            deals={deals.deals.filter((d) => d.stage === filterStage)}
-            contextFor={dealContext}
-            risk={riskById}
-            onDealChanged={refreshDeals}
-            onClear={() => setFilterStage(null)}
-          />
+        <div className="coverage" style={{ marginTop: 20 }}>
+          <div className="cov-item">
+            <div className="cov-label">Gap to target</div>
+            <div className="cov-value">{GBP(data.coverage.gap)}</div>
+          </div>
+          <div className="cov-item">
+            <div className="cov-label">Open</div>
+            <div className="cov-value">{GBP(data.coverage.openValue)}</div>
+          </div>
+          <div className="cov-item">
+            <div className="cov-label">Weighted at {Math.round(data.coverage.winRate * 100)}%</div>
+            <div className="cov-value">{GBP(data.coverage.weighted)}</div>
+          </div>
         </div>
+      </section>
+
+      {/* ----------------------------- moved ----------------------------- */}
+      {data.moved.length > 0 && (
+        <section>
+          <div className="eyebrow"><span className="dot" /><span>Moved this week · read, don’t debate</span></div>
+          <div className="facts" style={{ marginTop: 12 }}>
+            {data.moved.map((m, i) => (
+              <div className="fact" key={i}>
+                <span className="bullet" />
+                <span>
+                  <Link href={`/deal/${m.deal.id}`}><b>{m.deal.name}</b></Link>
+                  {" — "}{m.from ? `${m.from} → ${m.to}` : m.to}{" · "}{GBP(m.deal.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      <div className="section">
-        <Roundtable data={roundtable} error={errors.roundtable} />
+      {/* --------------------------- decisions --------------------------- */}
+      <section>
+        <div className="eyebrow">
+          <span className="dot" />
+          <span>Decisions · {data.decisions.length} need a call today</span>
+        </div>
+        {data.decisions.length === 0 && (
+          <p className="note">Nothing is flagged and no recorded verdict is contradicted. Skip to the queue.</p>
+        )}
+        {data.decisions.map((d, i) => (
+          <DecisionItem
+            key={d.deal.id}
+            item={d}
+            index={i + 1}
+            total={total}
+            settled={settled[d.deal.id]}
+            busy={busy === d.deal.id}
+            onDecide={decide}
+          />
+        ))}
+      </section>
+
+      {/* ----------------------------- queue ----------------------------- */}
+      {data.queue.length > 0 && (
+        <section>
+          <div className="eyebrow">
+            <span className="dot" />
+            <span>No visibility · alive or dead?</span>
+          </div>
+          <p className="note" style={{ marginTop: 10 }}>
+            {data.queueTotal} deals where nothing has been captured on any channel and no note explains
+            why. These are questions, not findings — several are probably fine. One line each and they
+            stop coming back.
+          </p>
+          <div className="queue">
+            {data.queue.map((q) => (
+              <div className="qrow" key={q.deal.id}>
+                <div>
+                  <div className="qname">
+                    <Link href={`/deal/${q.deal.id}`}>{q.deal.name}</Link>
+                  </div>
+                  <div className="qmeta">
+                    {q.deal.stage} · sees {q.channels.length ? q.channels.join(", ") : "nothing"}
+                  </div>
+                </div>
+                <div className="qval">
+                  {q.days === null ? "never" : `${q.days}d`} · {GBP(q.deal.value)}
+                </div>
+                <div className="qbtns">
+                  {settled[q.deal.id] ? (
+                    <span className="decided">{settled[q.deal.id]}</span>
+                  ) : (
+                    <>
+                      <button className="qbtn" disabled={busy === q.deal.id}
+                        onClick={() => decide(q.deal.id, "live", "Still live")}>Live</button>
+                      <button className="qbtn" disabled={busy === q.deal.id}
+                        onClick={() => decide(q.deal.id, "park", "Parked")}>Park</button>
+                      <button className="qbtn" disabled={busy === q.deal.id}
+                        onClick={() => decide(q.deal.id, "dead", "Marked lost")}>Dead</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="foot">
+        <div className="foot-text">
+          Decisions write straight back to Attio. Nothing to update afterwards.{" "}
+          <Link href="/deals" style={{ textDecoration: "underline" }}>Browse all deals</Link>
+        </div>
+        <div className="wordmark">powered by sentrum</div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionItem({
+  item, index, total, settled, busy, onDecide,
+}: {
+  item: AgendaDecision;
+  index: number;
+  total: number;
+  settled?: string;
+  busy: boolean;
+  onDecide: (id: string, d: Decision, label: string) => void;
+}) {
+  const { deal, visibility, factors, score, lastConversation, callsHeld, tension } = item;
+
+  return (
+    <div className="item">
+      <div className="item-head">
+        <div>
+          <div className="item-idx">{index} of {total}{settled ? " · decided" : ""}</div>
+          <div className="item-title">
+            <Link href={`/deal/${deal.id}`}>{deal.name}</Link>
+          </div>
+          <div className="item-sub">
+            {deal.stage} · {deal.ownerName || "Unassigned"} · {visibility.summary.split(".")[0]}
+          </div>
+        </div>
+        <div className="item-value">{GBP(deal.value)}</div>
       </div>
 
-      <div className="section">
-        <OpenTasks
-          tasks={tasks}
-          deals={(deals?.deals ?? []).filter(
-            (d) => !CLOSED_STAGES.includes(d.stage as any)
+      {!settled && (
+        <>
+          <div className="facts">
+            {factors.map((f, i) => (
+              <div className="fact" key={i}>
+                <span className="bullet" />
+                <span>{f.label}</span>
+              </div>
+            ))}
+            {callsHeld > 0 && (
+              <div className="fact"><span className="bullet" /><span>{callsHeld} calls held.</span></div>
+            )}
+          </div>
+
+          {visibility.verdict && (
+            <div className="quote">Recorded verdict — <b>“{visibility.verdict}”</b></div>
           )}
-          onChanged={refreshTasks}
-          error={errors.tasks}
-        />
-      </div>
+          {lastConversation?.excerpt && (
+            <div className="quote">
+              <b>{lastConversation.title}</b> — {lastConversation.excerpt}
+            </div>
+          )}
+          {tension && <div className="tension">{tension}</div>}
+        </>
+      )}
 
-      <div className="section">
-        <MarketSignals
-          data={slack?.marketSignals ?? null}
-          dealsByClub={dealsByClub}
-          error={errors.slack}
-        />
+      <div className="actions">
+        {settled ? (
+          <span className="decided">{settled}</span>
+        ) : (
+          <>
+            <button className="btn primary" disabled={busy}
+              onClick={() => onDecide(deal.id, "live", "Still live")}>Still live</button>
+            <button className="btn" disabled={busy}
+              onClick={() => onDecide(deal.id, "park", "Parked")}>Park it</button>
+            <button className="btn" disabled={busy}
+              onClick={() => onDecide(deal.id, "dead", "Marked lost")}>Mark lost</button>
+            <Link href={`/deal/${deal.id}`} className="btn">Open</Link>
+            <span className="muted" style={{ fontSize: 12, marginLeft: 4 }}>score {score}</span>
+          </>
+        )}
       </div>
-
-      <div className="section">
-        <OwnerPerformance
-          deals={deals?.deals ?? null}
-          risk={riskById}
-          error={errors.deals}
-        />
-      </div>
-
-      {/* Removed as redundant: "Follow-ups needed" (awaiting-reply is a Focus
-          factor and a This week line), "New conversations" (a This week line),
-          "Weekly activity" (snapshot numbers conflicted with live ones),
-          "Pipeline health" (every stat lives in Coverage, Focus, This week or
-          the stage tiles). */}
     </div>
   );
 }

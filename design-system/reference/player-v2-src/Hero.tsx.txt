@@ -1,0 +1,378 @@
+import Image from 'next/image'
+import Link from 'next/link'
+import { Plus } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useTenantSafe } from '@/lib/context/tenant-context'
+import { Pitch, toPitchPosition, type PitchDot, type Position } from './shared/Pitch'
+import type { PlayerProfile, PositionHeatmapData } from '@/lib/types/profiles'
+
+interface HeroProps {
+  profile: PlayerProfile
+  /** Position weighting from getPlayerPositionData — drives the pitch. */
+  positionData?: PositionHeatmapData | null
+  /** 90-day market value delta in euros (optional — hidden if zero/missing). */
+  marketValueDelta90d?: number | null
+  /** Preferred: navigate to a route. Falls back to onWriteReport if href is null. */
+  writeReportHref?: string | null
+  /** Preferred: navigate to a route. Falls back to onAddToShortlist if href is null. */
+  addToShortlistHref?: string | null
+  onWriteReport?: () => void
+  onAddToShortlist?: () => void
+  showShortListAction?: boolean
+  showWriteReportAction?: boolean
+  className?: string
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Format helpers — local to keep the file self-contained. formatMarketValue
+// duplicates the helper in lib/utils because we want unit-suffix output
+// ("€60M") rather than localized money. formatContractRemaining + formatHeight
+// only have one consumer right now, so they live here too; lift to lib/utils
+// if a second caller turns up.
+// ────────────────────────────────────────────────────────────────────
+
+function formatMarketValue(value: number | null | undefined): string {
+  if (value == null || value === 0) return '—'
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000
+    return `€${m.toFixed(m >= 100 ? 0 : 1).replace(/\.0$/, '')}M`
+  }
+  if (value >= 1_000) return `€${(value / 1_000).toFixed(0)}K`
+  return `€${value}`
+}
+
+function formatDelta(value: number | null | undefined): string | null {
+  if (value == null || value === 0) return null
+  const sign = value > 0 ? '↑' : '↓'
+  const abs = Math.abs(value)
+  return `${sign} ${formatMarketValue(abs)} (90d)`
+}
+
+function formatContractYear(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const year = new Date(iso).getFullYear()
+  return Number.isFinite(year) ? year.toString() : '—'
+}
+
+function formatHeight(cm: number | null | undefined): string | null {
+  return cm ? `${cm}cm` : null
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(n => n[0] ?? '')
+    .join('')
+    .toUpperCase()
+}
+
+function buildMetaLine(profile: PlayerProfile): string {
+  const parts: string[] = []
+  if (profile.age != null) parts.push(`Age ${profile.age}`)
+  const height = formatHeight(profile.height)
+  if (height) parts.push(height)
+  if (profile.foot) {
+    const foot = profile.foot.charAt(0).toUpperCase() + profile.foot.slice(1)
+    parts.push(`${foot} foot`)
+  }
+  if (profile.nationality) parts.push(profile.nationality)
+  return parts.join(' · ')
+}
+
+/**
+ * Reduce weighted heatmap data (or raw profile position strings) to a
+ * Position[] suitable for the Pitch component, picking the strongest as
+ * primary. Matches the overview heatmap's filter — every position at
+ * MIN_VISIBLE_PCT or above, sorted by share — so the two pitches show
+ * the same set of dots for any given player.
+ *
+ * Falls back to evenly-weighted name strings when no heatmap data is
+ * available (capped at 4 to avoid clutter on the small pitch).
+ */
+const MIN_VISIBLE_PCT = 2
+
+function derivePitchPositions(
+  profile: PlayerProfile,
+  positionData?: PositionHeatmapData | null
+): { primary: Position | undefined; dots: PitchDot[] } {
+  if (positionData?.positions?.length) {
+    const sorted = [...positionData.positions]
+      .filter(p => p.percentage >= MIN_VISIBLE_PCT)
+      .sort((a, b) => b.percentage - a.percentage)
+    const dots: PitchDot[] = []
+    const seen = new Set<Position>()
+    for (const p of sorted) {
+      const mapped = toPitchPosition(p.position)
+      if (mapped && !seen.has(mapped)) {
+        seen.add(mapped)
+        dots.push({ position: mapped, percentage: p.percentage })
+      }
+    }
+    const primary = toPitchPosition(positionData.mainPosition) ?? dots[0]?.position
+    return { primary, dots }
+  }
+  // Fallback: even-ish weighting from raw profile strings.
+  const dots: PitchDot[] = []
+  const seen = new Set<Position>()
+  const primary = toPitchPosition(profile.position) ?? undefined
+  if (primary) {
+    dots.push({ position: primary, percentage: 60 })
+    seen.add(primary)
+  }
+  for (const p of profile.secondaryPositions ?? []) {
+    const mapped = toPitchPosition(p)
+    if (mapped && !seen.has(mapped)) {
+      seen.add(mapped)
+      dots.push({ position: mapped, percentage: 20 })
+    }
+    if (dots.length === 4) break
+  }
+  return { primary, dots }
+}
+
+/** Uppercase section-label utility — matches the spec's stat module heading. */
+const LABEL_CLASS =
+  'text-[11px] font-semibold tracking-[0.08em] uppercase text-zinc-500 dark:text-zinc-400 leading-none'
+
+// ────────────────────────────────────────────────────────────────────
+// Component
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Player profile header — Option B layout: sibling stat modules.
+ *
+ *   ┌─ avatar ─┐ ┌─ name block ─┐  ─── flex spacer ───  ┌ stats strip ┐ ┌─ actions stack ─┐
+ *
+ * The stats strip is three sibling modules (Positions / Market value /
+ * Contract), each with a small uppercase section label above and the
+ * content below; modules are separated by thin vertical hairlines.
+ * Actions are stacked vertically on the far right.
+ */
+export function Hero({
+  profile,
+  positionData,
+  marketValueDelta90d,
+  writeReportHref,
+  addToShortlistHref,
+  onWriteReport,
+  onAddToShortlist,
+  showShortListAction = true,
+  showWriteReportAction = true,
+  className,
+}: HeroProps) {
+  const { primary, dots } = derivePitchPositions(profile, positionData)
+  const hasPitchData = dots.length > 0
+
+  // Link the club crest + name to the club profile (keyed by canonical
+  // teams.uuid). Null when there's no uuid or we're outside a tenant context
+  // (e.g. the design preview) — callers then render plain, unlinked content.
+  const tenant = useTenantSafe()
+  const clubHref = tenant && profile.club?.uuid ? `/${tenant.slug}/club/${profile.club.uuid}` : null
+
+  const metaLine = buildMetaLine(profile)
+  const deltaText = formatDelta(marketValueDelta90d)
+
+  // Build an accessible label for the pitch from the displayed dots, so the
+  // SVG reads to assistive tech instead of being purely decorative.
+  const pitchAriaLabel = hasPitchData
+    ? `Plays as ${dots.map(d => POSITION_FULL_NAME[d.position]).join(', ')}`
+    : undefined
+
+  return (
+    <section
+      data-testid="profile-hero"
+      className={cn('border-b border-zinc-200 pb-6 dark:border-zinc-800', className)}
+    >
+      <div className="flex flex-wrap items-center gap-7">
+        {/* Avatar with club crest badge — wrapper allows the crest to
+            overflow the rounded avatar's bottom-right corner. */}
+        <div className="relative shrink-0">
+          <div
+            className={cn(
+              'relative h-[76px] w-[76px] overflow-hidden rounded-[12px]',
+              'bg-gradient-to-br from-stone-300 to-stone-400',
+              'shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)]'
+            )}
+          >
+            {profile.photoUrl ? (
+              <Image
+                src={profile.photoUrl}
+                alt={profile.name}
+                fill
+                sizes="76px"
+                className="object-cover"
+              />
+            ) : (
+              <div className="font-outfit absolute inset-0 flex items-center justify-center text-[28px] font-semibold text-white/90">
+                {initials(profile.name)}
+              </div>
+            )}
+          </div>
+          {profile.club?.crest &&
+            (() => {
+              const badge = (
+                <div className="absolute -right-1.5 -bottom-1.5 flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow-sm dark:border-zinc-900 dark:bg-zinc-900">
+                  {/* Plain img + onError so a broken crest URL just disappears
+                      instead of leaving a busted-image icon. */}
+                  <img
+                    src={profile.club.crest}
+                    alt={profile.club.name ?? 'Club'}
+                    className="h-full w-full object-contain p-0.5"
+                    onError={e => {
+                      e.currentTarget.parentElement?.style.setProperty('display', 'none')
+                    }}
+                  />
+                </div>
+              )
+              return clubHref ? (
+                <Link href={clubHref} aria-label={profile.club.name ?? 'Club profile'}>
+                  {badge}
+                </Link>
+              ) : (
+                badge
+              )
+            })()}
+        </div>
+
+        {/* Name block */}
+        <div className="min-w-0 flex-shrink">
+          {clubHref ? (
+            <Link
+              href={clubHref}
+              className="block truncate text-[13px] font-semibold tracking-[0.08em] text-zinc-500 uppercase underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+            >
+              {profile.club?.name ?? '—'}
+            </Link>
+          ) : (
+            <div className="truncate text-[13px] font-semibold tracking-[0.08em] text-zinc-500 uppercase dark:text-zinc-400">
+              {profile.club?.name ?? '—'}
+            </div>
+          )}
+          <h1 className="font-outfit mt-1 text-[42px] leading-[1.08] font-semibold tracking-[-0.02em] text-zinc-950 dark:text-zinc-100">
+            {profile.name}
+          </h1>
+          <div className="mt-1.5 text-[15px] text-zinc-500 dark:text-zinc-400">{metaLine}</div>
+        </div>
+
+        {/* Flex spacer */}
+        <div className="hidden flex-1 md:block" />
+
+        {/* Stats strip — three sibling modules, separated by hairlines */}
+        <div className="flex items-center gap-[22px]">
+          {hasPitchData && (
+            <>
+              <div className="flex flex-col items-start gap-1.5">
+                <span className={LABEL_CLASS}>Positions</span>
+                <Pitch width={160} primary={primary} dots={dots} ariaLabel={pitchAriaLabel} />
+              </div>
+              <div className="h-16 w-px bg-zinc-200 dark:bg-zinc-800" />
+            </>
+          )}
+
+          <div className="flex flex-col items-start gap-1.5">
+            <span className={LABEL_CLASS}>Market value</span>
+            <div className="font-outfit text-[22px] leading-none font-semibold tracking-[-0.01em] text-zinc-950 tabular-nums dark:text-zinc-100">
+              {formatMarketValue(profile.marketValue)}
+            </div>
+            {deltaText && (
+              <div
+                className={cn(
+                  'text-[11px] font-medium',
+                  (marketValueDelta90d ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'
+                )}
+              >
+                {deltaText}
+              </div>
+            )}
+          </div>
+
+          <div className="h-16 w-px bg-zinc-200 dark:bg-zinc-800" />
+
+          <div className="flex flex-col items-start gap-1.5">
+            <span className={LABEL_CLASS}>Contract</span>
+            <div className="font-outfit text-[22px] leading-none font-semibold tracking-[-0.01em] text-zinc-950 tabular-nums dark:text-zinc-100">
+              {formatContractYear(profile.contractEnd)}
+            </div>
+          </div>
+        </div>
+
+        {/* Actions stack */}
+        {(showShortListAction || showWriteReportAction) && (
+          <div className="ml-1.5 flex flex-col gap-2">
+            {showShortListAction && (
+              <ActionButton
+                variant="secondary"
+                label="Shortlist"
+                href={addToShortlistHref}
+                onClick={onAddToShortlist}
+              />
+            )}
+            {showWriteReportAction && (
+              <ActionButton
+                variant="primary"
+                label="Write report"
+                href={writeReportHref}
+                onClick={onWriteReport}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ────────────────────────────────────────────────────────────────────
+
+const POSITION_FULL_NAME: Record<Position, string> = {
+  GK: 'Goalkeeper',
+  LB: 'Left-Back',
+  CB: 'Centre-Back',
+  RB: 'Right-Back',
+  LM: 'Left Midfielder',
+  CM: 'Central Midfielder',
+  RM: 'Right Midfielder',
+  AM: 'Attacking Midfielder',
+  LW: 'Left Winger',
+  ST: 'Striker',
+  RW: 'Right Winger',
+}
+
+interface ActionButtonProps {
+  label: string
+  variant: 'primary' | 'secondary'
+  href?: string | null
+  onClick?: () => void
+}
+
+function ActionButton({ label, variant, href, onClick }: ActionButtonProps) {
+  const base =
+    'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-colors'
+  const styles =
+    variant === 'primary'
+      ? 'bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-950 text-white hover:bg-zinc-800 dark:hover:bg-zinc-200'
+      : 'border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
+
+  const content = (
+    <>
+      <Plus className="size-3.5" />
+      {label}
+    </>
+  )
+
+  if (href) {
+    return (
+      <Link href={href} className={cn(base, styles)}>
+        {content}
+      </Link>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={cn(base, styles)}>
+      {content}
+    </button>
+  )
+}

@@ -1,0 +1,29 @@
+<!-- @dsCard group="Colors" viewport="700x170" name="Semantic tokens" subtitle="Surfaces, text, borders, destructive" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 16px; background: var(--shell-bg); }
+  .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .tk { border-radius: var(--radius-md); padding: 10px; border: 1px solid var(--border); }
+  .tk b { display: block; font-size: 11px; font-weight: 600; }
+  .tk span { font-size: 10px; font-family: var(--font-mono); opacity: 0.65; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="tk" style="background: var(--background); color: var(--foreground);"><b>--background</b><span>--foreground</span></div>
+    <div class="tk" style="background: var(--muted); color: var(--muted-foreground);"><b>--muted</b><span>--muted-foreground</span></div>
+    <div class="tk" style="background: var(--primary); color: var(--primary-foreground); border-color: transparent;"><b>--primary</b><span>--primary-foreground</span></div>
+    <div class="tk" style="background: var(--destructive); color: #fff; border-color: transparent;"><b>--destructive</b><span>errors, expiring</span></div>
+  </div>
+  <div class="row" style="margin-top: 10px;">
+    <div class="tk" style="background: var(--surface-card); border-color: var(--border-card); box-shadow: var(--shadow-nested);"><b>--surface-card</b><span>--border-card · 200/80</span></div>
+    <div class="tk" style="background: var(--surface-inset);"><b>--surface-inset</b><span>hover & active pills</span></div>
+    <div class="tk" style="background: var(--surface-card); color: var(--text-muted);"><b>--text-muted</b><span>gray-500</span></div>
+    <div class="tk" style="background: var(--surface-card); outline: 3px solid color-mix(in oklab, var(--ring) 50%, transparent);"><b>--ring</b><span>focus, 3px soft</span></div>
+  </div>
+</body>
+</html>

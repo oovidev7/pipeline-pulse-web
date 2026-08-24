@@ -1,0 +1,653 @@
+/* ============================================================================
+   Sentrum component classes (snt-*)
+   Plain-CSS recreations of the app's shadcn/Tailwind compositions, driven by
+   the token layer. The React primitives in components/ consume these.
+   ========================================================================== */
+
+/* ---- Buttons ------------------------------------------------------------ */
+.snt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  height: 2.25rem;
+  padding: 0 1rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  outline: none;
+}
+.snt-btn:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+}
+.snt-btn:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.snt-btn svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.snt-btn--primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.snt-btn--primary:hover {
+  background: color-mix(in oklab, var(--primary) 90%, transparent);
+}
+.snt-btn--accent {
+  background: var(--accent-action);
+  color: #fff;
+}
+.snt-btn--accent:hover {
+  background: var(--accent-action-hover);
+}
+.snt-btn--secondary {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+.snt-btn--secondary:hover {
+  background: color-mix(in oklab, var(--secondary) 80%, transparent);
+  transform: scale(1.02);
+}
+.snt-btn--secondary:active {
+  transform: scale(0.98);
+}
+.snt-btn--outline {
+  background: var(--background);
+  border-color: var(--border);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+.snt-btn--outline:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.snt-btn--ghost {
+  background: transparent;
+  color: var(--foreground);
+}
+.snt-btn--ghost:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.snt-btn--destructive {
+  background: var(--destructive);
+  color: #fff;
+}
+.snt-btn--destructive:hover {
+  background: color-mix(in oklab, var(--destructive) 90%, transparent);
+}
+.snt-btn--sm {
+  height: 2rem;
+  padding: 0 0.75rem;
+  gap: 0.375rem;
+}
+.snt-btn--lg {
+  height: 2.5rem;
+  padding: 0 1.5rem;
+}
+.snt-btn--icon {
+  width: 2.25rem;
+  padding: 0;
+}
+.snt-btn--icon.snt-btn--sm {
+  width: 2rem;
+}
+
+/* ---- Badge --------------------------------------------------------------- */
+.snt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: fit-content;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-sans);
+}
+.snt-badge svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.snt-badge--default {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.snt-badge--secondary {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+.snt-badge--destructive {
+  background: var(--destructive);
+  color: #fff;
+}
+.snt-badge--outline {
+  border-color: var(--border);
+  color: var(--foreground);
+  background: transparent;
+}
+
+/* ---- Card ----------------------------------------------------------------- */
+.snt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+  padding: 1.5rem 0;
+  box-shadow: var(--shadow-xs);
+}
+.snt-card__header {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0 1.5rem;
+}
+.snt-card__title {
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  font-size: var(--text-base);
+}
+.snt-card__desc {
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}
+.snt-card__content {
+  padding: 0 1.5rem;
+}
+.snt-card__footer {
+  display: flex;
+  align-items: center;
+  padding: 0 1.5rem;
+}
+
+/* ---- Panel (shell-nested container: sidebar + main content) -------------- */
+.snt-panel {
+  background: var(--surface-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-nested);
+}
+
+/* ---- Inputs ---------------------------------------------------------------- */
+.snt-input,
+.snt-textarea {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--input);
+  background: transparent;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  outline: none;
+}
+.snt-input { height: 2.25rem; }
+.snt-textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+.snt-input::placeholder,
+.snt-textarea::placeholder {
+  color: var(--text-faint);
+}
+.snt-input:focus-visible,
+.snt-textarea:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
+}
+.snt-label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--foreground);
+  margin-bottom: 0.5rem;
+}
+
+/* ---- Switch ----------------------------------------------------------------- */
+.snt-switch {
+  position: relative;
+  display: inline-flex;
+  width: 2rem;
+  height: 1.15rem;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  background: var(--input);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.snt-switch[data-checked='true'] {
+  background: var(--primary);
+}
+.snt-switch__thumb {
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  transform: translateY(-50%);
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: var(--radius-full);
+  background: var(--background);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: left 0.15s ease;
+}
+.snt-switch[data-checked='true'] .snt-switch__thumb {
+  left: calc(100% - 0.95rem - 1px);
+  background: var(--primary-foreground);
+}
+
+/* ---- Tabs --------------------------------------------------------------------- */
+.snt-tabs__list {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  background: var(--muted);
+  border-radius: var(--radius-lg);
+  padding: 3px;
+}
+.snt-tabs__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.625rem;
+  height: calc(2.25rem - 8px);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.snt-tabs__trigger[data-active='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ---- Avatar -------------------------------------------------------------------- */
+.snt-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-full);
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.dark .snt-avatar {
+  background: var(--gray-700);
+  color: var(--gray-300);
+}
+.snt-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---- Skeleton -------------------------------------------------------------------- */
+.snt-skeleton {
+  background: var(--accent);
+  border-radius: var(--radius-md);
+  animation: snt-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes snt-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ---- Alert ----------------------------------------------------------------------- */
+.snt-alert {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  font-size: var(--text-sm);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.snt-alert svg {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 2px;
+  grid-row: span 2;
+}
+.snt-alert__title {
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+}
+.snt-alert__desc {
+  grid-column: 2;
+  color: var(--muted-foreground);
+}
+.snt-alert--destructive {
+  color: var(--destructive);
+}
+.snt-alert--destructive .snt-alert__desc {
+  color: color-mix(in oklab, var(--destructive) 90%, transparent);
+}
+
+/* ---- Progress ---------------------------------------------------------------------- */
+.snt-progress {
+  position: relative;
+  width: 100%;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
+  overflow: hidden;
+}
+.snt-progress__bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: var(--radius-full);
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---- Data table ---------------------------------------------------------------------- */
+.snt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.snt-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.snt-table td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  color: var(--text-body);
+}
+.snt-table tr:last-child td {
+  border-bottom: none;
+}
+.snt-table tbody tr {
+  transition: background 0.1s ease;
+}
+.snt-table--clickable tbody tr {
+  cursor: pointer;
+}
+.snt-table--clickable tbody tr:hover {
+  background: var(--surface-inset);
+}
+.snt-table .snt-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Sidebar nav ---------------------------------------------------------------------- */
+.snt-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  border: none;
+  width: 100%;
+  padding: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.snt-nav-item svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+.snt-nav-item:hover {
+  background: var(--surface-inset);
+}
+.snt-nav-item[data-active='true'] {
+  background: var(--surface-inset);
+  font-weight: var(--weight-medium);
+  color: var(--text-body);
+}
+
+/* Collapsible section header */
+.snt-nav-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+.snt-nav-section:hover {
+  background: var(--surface-inset);
+}
+.snt-nav-section svg {
+  width: 1rem;
+  height: 1rem;
+}
+.snt-nav-section__chevron {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+}
+.snt-nav-section[data-open='true'] .snt-nav-section__chevron {
+  transform: rotate(90deg);
+}
+
+/* ---- Chat: composer ---------------------------------------------------------------------- */
+.snt-composer {
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--border-card);
+  background: var(--surface-card);
+  padding: 1rem;
+  box-shadow: var(--shadow-elevated);
+  transition: box-shadow 0.2s ease;
+}
+.snt-composer:hover,
+.snt-composer:focus-within {
+  box-shadow: var(--shadow-floating);
+}
+.snt-composer:focus-within {
+  outline: 2px solid color-mix(in oklab, var(--slate-500) 20%, transparent);
+  outline-offset: 0;
+}
+.snt-composer textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text-body);
+  outline: none;
+}
+.snt-composer textarea::placeholder {
+  color: var(--text-faint);
+}
+
+/* ---- Chat: user message bubble -------------------------------------------------------------- */
+.snt-user-bubble {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-radius: var(--radius-xl);
+  background: rgb(243 244 246 / 0.8); /* gray-100/80 */
+  padding: 0.75rem 1rem;
+  box-shadow: var(--shadow-xs);
+}
+.dark .snt-user-bubble {
+  background: rgb(31 41 55 / 0.8); /* gray-800/80 */
+}
+.snt-user-bubble p {
+  margin: 0;
+  padding-top: 0.25rem;
+  font-size: var(--text-chat);
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- Chat: follow-up chip --------------------------------------------------------------------- */
+.snt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gray-200);
+  background: var(--surface-card);
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--leading-snug);
+  color: var(--gray-700);
+  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.snt-chip svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: color 0.15s ease;
+}
+.snt-chip:hover {
+  border-color: var(--gray-300);
+  color: var(--gray-900);
+  box-shadow: var(--shadow-elevated);
+}
+.snt-chip:hover svg {
+  color: var(--gray-600);
+}
+.snt-chip:active {
+  transform: scale(0.98);
+}
+.dark .snt-chip {
+  border-color: var(--gray-700);
+  background: rgb(31 41 55 / 0.6);
+  color: var(--gray-300);
+  box-shadow: none;
+}
+.dark .snt-chip:hover {
+  border-color: var(--gray-600);
+  background: var(--gray-800);
+  color: var(--gray-100);
+}
+
+/* ---- Chat: prompt suggestion row ("For you, this week") ----------------------------------------- */
+.snt-prompt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-card);
+  background: var(--surface-card);
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.snt-prompt-row:hover {
+  border-color: var(--gray-300);
+  box-shadow: var(--shadow-elevated);
+}
+.dark .snt-prompt-row:hover {
+  border-color: var(--gray-600);
+}
+.snt-prompt-row__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.snt-prompt-row__icon svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.snt-prompt-row:hover .snt-prompt-row__icon {
+  background: var(--slate-800);
+  color: #fff;
+}
+.snt-prompt-row__cta {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: center;
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+.snt-prompt-row__cta svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.snt-prompt-row:hover .snt-prompt-row__cta {
+  color: var(--text-body);
+}
+
+/* ---- Reduced motion ------------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .snt-skeleton {
+    animation: none;
+  }
+  .snt-btn,
+  .snt-chip,
+  .snt-composer,
+  .snt-prompt-row {
+    transition: none;
+  }
+}

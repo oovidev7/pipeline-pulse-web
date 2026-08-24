@@ -1,0 +1,174 @@
+import Image from 'next/image'
+import { Calendar, Shield } from 'lucide-react'
+import type { UpcomingFixture } from '@/lib/types/profiles'
+import { cn } from '@/lib/utils'
+
+interface UpcomingFixturesCardProps {
+  fixtures: UpcomingFixture[]
+}
+
+interface DateParts {
+  weekday: string // "Sat"
+  day: string // "30"
+  month: string // "May"
+}
+
+function dateParts(iso: string): DateParts | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return {
+    weekday: d.toLocaleDateString('en-GB', { weekday: 'short' }),
+    day: d.toLocaleDateString('en-GB', { day: '2-digit' }),
+    month: d.toLocaleDateString('en-GB', { month: 'short' }),
+  }
+}
+
+/**
+ * Short relative-time label for the right of each row.
+ *   today  → "Today" (emerald)
+ *   tmrw   → "Tomorrow" (emerald)
+ *   1-13d  → "Xd" (amber for ≤7, gray after)
+ *   2-7w   → "Xw" (gray)
+ *   else   → null (just show the date, no extra noise)
+ *
+ * Returns null when the fixture is far enough out that the calendar block
+ * carries the date on its own; the badge is most useful for near-term games.
+ */
+function relativeBadge(iso: string): { text: string; tone: 'now' | 'soon' | 'far' } | null {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+  // Day-aligned diff so we don't flicker around midnight.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const target = new Date(iso)
+  target.setHours(0, 0, 0, 0)
+  const days = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (days < 0) return null
+  if (days === 0) return { text: 'Today', tone: 'now' }
+  if (days === 1) return { text: 'Tomorrow', tone: 'now' }
+  if (days <= 7) return { text: `in ${days}d`, tone: 'soon' }
+  if (days <= 60) return { text: `in ${Math.round(days / 7)}w`, tone: 'far' }
+  return null
+}
+
+const BADGE_TONE: Record<'now' | 'soon' | 'far', string> = {
+  now: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  soon: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  far: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+}
+
+function FixtureRow({ fixture }: { fixture: UpcomingFixture }) {
+  const parts = dateParts(fixture.matchDate)
+  const badge = relativeBadge(fixture.matchDate)
+
+  return (
+    <li data-testid="fixture-row" className="flex items-stretch gap-3 px-3 py-3">
+      {/* Calendar tear-off date block — fixed width keeps row alignment clean. */}
+      <div className="flex w-12 flex-shrink-0 flex-col items-center justify-center rounded-md bg-zinc-50 py-1 leading-tight dark:bg-zinc-800/60">
+        <span className="font-mono text-[9px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-400">
+          {parts?.weekday}
+        </span>
+        <span className="font-outfit text-base font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
+          {parts?.day}
+        </span>
+        <span className="font-mono text-[9px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-400">
+          {parts?.month}
+        </span>
+      </div>
+
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
+        {/* Competition row — emblem + name in small caps. */}
+        <div className="flex items-center gap-1.5">
+          {fixture.competitionEmblem ? (
+            <Image
+              src={fixture.competitionEmblem}
+              alt=""
+              width={14}
+              height={14}
+              className="h-3.5 w-3.5 shrink-0 object-contain"
+            />
+          ) : (
+            <Shield className="h-3 w-3 shrink-0 text-zinc-300 dark:text-zinc-600" />
+          )}
+          <span
+            className="truncate font-mono text-[10px] font-medium tracking-[0.06em] text-zinc-500 uppercase dark:text-zinc-400"
+            title={fixture.competitionName}
+          >
+            {fixture.competitionName}
+          </span>
+        </div>
+
+        {/* Opponent — crest + name. */}
+        <div className="flex items-center gap-2">
+          {fixture.opponentCrest ? (
+            <Image
+              src={fixture.opponentCrest}
+              alt=""
+              width={20}
+              height={20}
+              className="h-5 w-5 shrink-0 object-contain"
+            />
+          ) : (
+            <span className="h-5 w-5 shrink-0" />
+          )}
+          <span
+            className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100"
+            title={fixture.opponentName}
+          >
+            {fixture.opponentName}
+          </span>
+        </div>
+      </div>
+
+      {/* Right rail: relative badge stacked over H/A. */}
+      <div className="flex flex-shrink-0 flex-col items-end justify-center gap-1">
+        {badge ? (
+          <span
+            data-testid="fixture-relative-badge"
+            className={cn(
+              'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap',
+              BADGE_TONE[badge.tone]
+            )}
+          >
+            {badge.text}
+          </span>
+        ) : null}
+        <span
+          className="font-mono text-[10px] font-semibold tracking-wider text-zinc-400 uppercase dark:text-zinc-500"
+          aria-label={fixture.isHome ? 'home' : 'away'}
+        >
+          {fixture.isHome ? 'Home' : 'Away'}
+        </span>
+      </div>
+    </li>
+  )
+}
+
+export function UpcomingFixturesCard({ fixtures }: UpcomingFixturesCardProps) {
+  if (fixtures.length === 0) {
+    return (
+      <section
+        data-testid="fixtures-empty"
+        className="flex items-center gap-2 rounded-lg border border-dashed border-zinc-200 bg-zinc-50/40 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40"
+      >
+        <Calendar className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden />
+        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          No scheduled fixtures
+        </span>
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          &middot; season has ended
+        </span>
+      </section>
+    )
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      <ul data-testid="fixtures-list" className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+        {fixtures.map(f => (
+          <FixtureRow key={f.matchId} fixture={f} />
+        ))}
+      </ul>
+    </section>
+  )
+}

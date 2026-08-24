@@ -1,0 +1,70 @@
+import 'server-only'
+
+import { getImpectInitialData } from '@/lib/impect'
+import { getSkillcornerFullDataForPlayer } from '@/lib/skillcorner'
+import {
+  getRecentMatchCompetitions,
+  getPlayerCompetitionStats,
+} from '@/lib/services/profile-service'
+import { buildPerformanceTabData } from '@/lib/services/player-profile-v2-data'
+import type { PlayerProfile } from '@/lib/types/profiles'
+import type { VerifiedSlug } from '@/lib/auth/tenant-context'
+import { FadeIn } from '../FadeIn'
+import { PerformanceTab } from '../tabs/PerformanceTab'
+
+interface Props {
+  slug: VerifiedSlug
+  profile: PlayerProfile
+}
+
+/**
+ * Server-rendered Performance tab content. Owns the two slowest feeds in
+ * the whole profile — Impect (technical) + SkillCorner (physical) — so it
+ * sits inside its own Suspense boundary: the shell (hero + tab nav) paints
+ * immediately and this fades in when the feeds land, rather than blocking
+ * the entire page render for 2–6s.
+ *
+ * `PerformanceTab` stays a fully client-interactive component (filters,
+ * sub-tabs, the technical-refresh action) — it just receives its initial
+ * props from here instead of from the eager `buildV2PlayerData`.
+ */
+export async function PerformanceSection({ slug, profile }: Props) {
+  const playerId = profile.id
+  // Impect resolves the DEFAULT season (currentFilters); scope the physical feed
+  // to that same season so the initial Physical panel matches the Technical one
+  // (both default-season) instead of showing a career-wide aggregate. Physical is
+  // fetched after — it's the fast feed, so the serialization cost is small and
+  // the two run after the slow Impect call resolves the season.
+  const [impectResult, matchCompetitions, competitionStats] = await Promise.all([
+    getImpectInitialData(Number(playerId), String(playerId), slug),
+    // Per-match competition lookup (matchId → name + crest) for the match
+    // history table; last 20 keeps the join small.
+    getRecentMatchCompetitions(String(playerId), slug, 20),
+    getPlayerCompetitionStats(slug, playerId),
+  ])
+  const skillcornerData = await getSkillcornerFullDataForPlayer(playerId, slug, null, {
+    seasonId: impectResult?.currentFilters?.seasonId ?? null,
+    competitionId: impectResult?.currentFilters?.competitionId ?? null,
+  })
+
+  // The season/competition labels read off profile.competitionStats.
+  const hydratedProfile: PlayerProfile = competitionStats
+    ? { ...profile, competitionStats }
+    : profile
+
+  const performanceData = buildPerformanceTabData({
+    profile: hydratedProfile,
+    impectData: impectResult?.playerData ?? null,
+    impectPercentiles: impectResult?.percentiles ?? null,
+    impectFilterOptions: impectResult?.filterOptions ?? null,
+    impectCurrentFilters: impectResult?.currentFilters ?? {},
+    skillcornerData,
+    matchCompetitions,
+  })
+
+  return (
+    <FadeIn>
+      <PerformanceTab {...performanceData} />
+    </FadeIn>
+  )
+}

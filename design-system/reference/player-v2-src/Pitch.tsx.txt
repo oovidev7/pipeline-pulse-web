@@ -1,0 +1,280 @@
+'use client'
+
+/**
+ * Compact pitch visualisation for the player profile header.
+ *
+ * 220 × 130 viewBox (matches the design spec). Field is vertical
+ * stripes alternating two dark slate values; markings are white
+ * hairlines (touchline, halfway line, center circle, penalty +
+ * 6-yard boxes on both ends). Position dots use emerald with a
+ * white stroke; the primary dot gets a soft radial halo and a
+ * direction arrow pointing toward the attacking goal.
+ *
+ * Stays a pure SVG so it can be embedded in either the main hero
+ * (≈220px wide) or the sticky bar (smaller) without re-design.
+ */
+
+export type Position = 'GK' | 'LB' | 'CB' | 'RB' | 'LM' | 'CM' | 'RM' | 'AM' | 'LW' | 'ST' | 'RW'
+
+// Coordinates in 220 × 130 viewBox, attacking-right convention.
+// Mirror x for attacking-left (x' = 220 - x).
+const POSITION_COORDS: Record<Position, { x: number; y: number }> = {
+  GK: { x: 14, y: 65 },
+  LB: { x: 38, y: 28 },
+  CB: { x: 38, y: 65 },
+  RB: { x: 38, y: 102 },
+  LM: { x: 75, y: 28 },
+  CM: { x: 75, y: 65 },
+  RM: { x: 75, y: 102 },
+  AM: { x: 110, y: 65 },
+  // Wingers sit slightly back from the striker so they cluster cleanly
+  // along the attacking third — mirrors the overview heatmap's geometry.
+  LW: { x: 152, y: 22 },
+  ST: { x: 175, y: 65 },
+  RW: { x: 152, y: 108 },
+}
+
+export interface PitchDot {
+  position: Position
+  /** Share of minutes (0–100). Drives dot radius; falls back to 33 if missing. */
+  percentage?: number
+}
+
+interface PitchProps {
+  /** Rendered width in px. Height derives from the 220:130 aspect. */
+  width?: number
+  /** Position that gets the halo + direction arrow + white stroke. */
+  primary?: Position
+  /** All dots to render. Include the primary in this list. */
+  dots: PitchDot[]
+  /** Which goal the player attacks toward. Mirrors all x-coords if `left`. */
+  attacking?: 'right' | 'left'
+  /** SVG border-radius. */
+  rounded?: number
+  className?: string
+  /** Accessible label, e.g. `Plays as Left Winger, Striker, Right Winger`. */
+  ariaLabel?: string
+}
+
+// Radius mapping. sqrt-scaled so low-% dots still read but the primary
+// can dominate. At 65% the dot is ~14 SVG units (≈10px at 160px width);
+// at 2% it's ~5.7 SVG units (≈4px) — still visible, clearly smaller.
+function dotRadius(percentage: number | undefined): number {
+  const pct = Math.max(0, Math.min(100, percentage ?? 33))
+  return 4 + Math.sqrt(pct / 100) * 12
+}
+
+export function Pitch({
+  width = 220,
+  primary,
+  dots,
+  attacking = 'right',
+  rounded = 4,
+  className,
+  ariaLabel,
+}: PitchProps) {
+  const height = Math.round((width * 130) / 220)
+  const mirrorX = (x: number) => (attacking === 'right' ? x : 220 - x)
+
+  // Build a unique gradient id so multiple Pitch instances don't collide
+  // when both have a primary position. Stable across renders within one
+  // instance via the primary string itself.
+  const glowId = `pitch-glow-${primary ?? 'none'}-${attacking}`
+
+  return (
+    <svg
+      viewBox="0 0 220 130"
+      width={width}
+      height={height}
+      role={ariaLabel ? 'img' : undefined}
+      aria-label={ariaLabel}
+      aria-hidden={ariaLabel ? undefined : true}
+      className={className}
+      style={{ borderRadius: rounded, display: 'block' }}
+    >
+      <defs>
+        <radialGradient id={glowId}>
+          <stop offset="0%" stopColor="#10b981" stopOpacity="0.6" />
+          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* Field — solid navy + subtle white stripes for grass texture.
+          Matches the overview heatmap's color treatment so the two
+          pitches sit cleanly next to each other on the same page. */}
+      <rect x={0} y={0} width={220} height={130} fill="#1e3a5f" />
+      <g opacity={0.06}>
+        {Array.from({ length: 10 }).map((_, i) => (
+          <rect key={i} x={i * 22} y={0} width={11} height={130} fill="white" />
+        ))}
+      </g>
+
+      {/* Markings — white hairlines */}
+      <g stroke="rgba(255,255,255,0.78)" strokeWidth={1} fill="none">
+        {/* Outer touchline */}
+        <rect x={0.5} y={0.5} width={219} height={129} />
+        {/* Halfway line */}
+        <line x1={110} y1={0} x2={110} y2={130} />
+        {/* Center circle + spot */}
+        <circle cx={110} cy={65} r={14} />
+        <circle cx={110} cy={65} r={0.9} fill="rgba(255,255,255,0.78)" />
+        {/* Left penalty + 6-yard boxes */}
+        <rect x={0} y={26} width={34} height={78} />
+        <rect x={0} y={47} width={12} height={36} />
+        {/* Right penalty + 6-yard boxes */}
+        <rect x={186} y={26} width={34} height={78} />
+        <rect x={208} y={47} width={12} height={36} />
+      </g>
+
+      {/* Halo glow behind the primary dot — sized just larger than the
+          dot so the "hot zone" stays proportional to the share played. */}
+      {primary &&
+        POSITION_COORDS[primary] &&
+        (() => {
+          const primaryDot = dots.find(d => d.position === primary)
+          const r = dotRadius(primaryDot?.percentage) + 10
+          return (
+            <circle
+              cx={mirrorX(POSITION_COORDS[primary].x)}
+              cy={POSITION_COORDS[primary].y}
+              r={r}
+              fill={`url(#${glowId})`}
+            />
+          )
+        })()}
+
+      {/* Position dots — radius scales with percentage; primary picks up
+          a white stroke. No labels — location + size carry the meaning. */}
+      {dots.map(dot => {
+        const coords = POSITION_COORDS[dot.position]
+        if (!coords) return null
+        const x = mirrorX(coords.x)
+        const y = coords.y
+        const isPrimary = dot.position === primary
+        const r = dotRadius(dot.percentage)
+        return (
+          <circle
+            key={`dot-${dot.position}`}
+            cx={x}
+            cy={y}
+            r={r}
+            fill="#10b981"
+            stroke={isPrimary ? 'white' : 'rgba(255,255,255,0.55)'}
+            strokeWidth={isPrimary ? 1.6 : 0.9}
+          />
+        )
+      })}
+
+      {/* Direction arrow anchored to the primary dot — pushed past its
+          radius so the arrow doesn't overlap a large primary circle. */}
+      {primary &&
+        POSITION_COORDS[primary] &&
+        (() => {
+          const primaryDot = dots.find(d => d.position === primary)
+          const r = dotRadius(primaryDot?.percentage)
+          const x = mirrorX(POSITION_COORDS[primary].x)
+          const y = POSITION_COORDS[primary].y
+          const dir = attacking === 'right' ? 1 : -1
+          const stemStart = x + dir * (r + 3)
+          const stemEnd = stemStart + dir * 13
+          const headBack = stemEnd - dir * 3
+          return (
+            <g stroke="rgba(255,255,255,0.7)" strokeWidth={1} fill="none" strokeLinecap="round">
+              <line x1={stemStart} y1={y} x2={stemEnd} y2={y} />
+              <path d={`M ${headBack} ${y - 3} L ${stemEnd} ${y} L ${headBack} ${y + 3}`} />
+            </g>
+          )
+        })()}
+    </svg>
+  )
+}
+
+/**
+ * Map common position-name strings + heatmap keys to the spec's
+ * 11-position vocabulary. Used by callers to convert raw profile data
+ * into Pitch dots without each consumer redefining the same lookup.
+ */
+const POSITION_LOOKUP: Record<string, Position> = {
+  // Goalkeeper
+  goalkeeper: 'GK',
+  gk: 'GK',
+  // Defenders
+  'centre-back': 'CB',
+  'center-back': 'CB',
+  centerback: 'CB',
+  centre_back: 'CB',
+  cb: 'CB',
+  sweeper: 'CB',
+  sw: 'CB',
+  'left-back': 'LB',
+  leftback: 'LB',
+  left_back: 'LB',
+  lb: 'LB',
+  'left wing-back': 'LB',
+  left_wing_back: 'LB',
+  lwb: 'LB',
+  'right-back': 'RB',
+  rightback: 'RB',
+  right_back: 'RB',
+  rb: 'RB',
+  'right wing-back': 'RB',
+  right_wing_back: 'RB',
+  rwb: 'RB',
+  // Midfielders
+  'defensive midfielder': 'CM',
+  'defensive mid': 'CM',
+  defensivemidfield: 'CM',
+  defensive_midfielder: 'CM',
+  dm: 'CM',
+  cdm: 'CM',
+  'central midfielder': 'CM',
+  'central mid': 'CM',
+  centralmidfield: 'CM',
+  central_midfielder: 'CM',
+  cm: 'CM',
+  'attacking midfielder': 'AM',
+  'attacking mid': 'AM',
+  attackingmidfield: 'AM',
+  attacking_midfielder: 'AM',
+  am: 'AM',
+  cam: 'AM',
+  'left midfielder': 'LM',
+  'left mid': 'LM',
+  leftmidfield: 'LM',
+  left_midfielder: 'LM',
+  lm: 'LM',
+  'right midfielder': 'RM',
+  'right mid': 'RM',
+  rightmidfield: 'RM',
+  right_midfielder: 'RM',
+  rm: 'RM',
+  // Forwards
+  'left wing': 'LW',
+  'left winger': 'LW',
+  leftwing: 'LW',
+  left_winger: 'LW',
+  lw: 'LW',
+  'right wing': 'RW',
+  'right winger': 'RW',
+  rightwing: 'RW',
+  right_winger: 'RW',
+  rw: 'RW',
+  'second striker': 'ST',
+  secondstriker: 'ST',
+  second_striker: 'ST',
+  ss: 'ST',
+  'centre-forward': 'ST',
+  'center-forward': 'ST',
+  centreforward: 'ST',
+  centre_forward: 'ST',
+  'centre forward': 'ST',
+  centerforward: 'ST',
+  cf: 'ST',
+  striker: 'ST',
+  st: 'ST',
+}
+
+export function toPitchPosition(input: string | null | undefined): Position | null {
+  if (!input) return null
+  return POSITION_LOOKUP[input.toLowerCase().trim()] ?? null
+}

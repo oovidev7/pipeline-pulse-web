@@ -1,0 +1,31 @@
+<!-- @dsCard group="Colors" viewport="700x170" name="Neutrals" subtitle="Gray (chrome & text) over warm stone shell" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 16px; background: var(--surface-card); display: flex; flex-direction: column; gap: 10px; }
+  .scale { display: grid; grid-template-columns: repeat(11, 1fr); gap: 4px; }
+  .sw { height: 44px; border-radius: var(--radius-sm); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; font-size: 9px; font-family: var(--font-mono); }
+  .label { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+  <div class="label">gray — text, borders, hover fills</div>
+  <div class="scale">
+    <div class="sw" style="background: var(--gray-50); color: #999;">50</div>
+    <div class="sw" style="background: var(--gray-100); color: #999;">100</div>
+    <div class="sw" style="background: var(--gray-200); color: #777;">200</div>
+    <div class="sw" style="background: var(--gray-300); color: #666;">300</div>
+    <div class="sw" style="background: var(--gray-400); color: #fff;">400</div>
+    <div class="sw" style="background: var(--gray-500); color: #fff;">500</div>
+    <div class="sw" style="background: var(--gray-600); color: #fff;">600</div>
+    <div class="sw" style="background: var(--gray-700); color: #fff;">700</div>
+    <div class="sw" style="background: var(--gray-800); color: #fff;">800</div>
+    <div class="sw" style="background: var(--gray-900); color: #fff;">900</div>
+    <div class="sw" style="background: var(--gray-950); color: #fff;">950</div>
+  </div>
+  <div class="label" style="margin-top: 2px;">shell wash — <span style="display: inline-block; width: 80px; height: 14px; background: var(--shell-bg); border: 1px solid var(--border); border-radius: 3px; vertical-align: middle;"></span> oklch(0.97 0.001 106) — warm stone, behind all panels</div>
+</body>
+</html>

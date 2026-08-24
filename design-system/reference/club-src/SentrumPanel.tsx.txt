@@ -1,0 +1,157 @@
+import Image from 'next/image'
+import { FileText, Star, StickyNote, User } from 'lucide-react'
+import type { CoveredPlayer, SentrumActivity } from '@/lib/types/profiles'
+import { getPositionAbbr } from '@/lib/utils/positions'
+
+interface SentrumPanelProps {
+  activity: SentrumActivity
+}
+
+/**
+ * Long-form relative date for the summary header ("3d ago", "today").
+ */
+function relativeLong(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const days = Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24))
+  if (days <= 0) return 'today'
+  if (days === 1) return '1d ago'
+  if (days < 30) return `${days}d ago`
+  const months = Math.floor(days / 30)
+  if (months === 1) return '1mo ago'
+  if (months < 12) return `${months}mo ago`
+  return `${Math.floor(months / 12)}y ago`
+}
+
+/**
+ * Compact relative date for per-row badges ("3d", "5w"). Always 2-3 chars so
+ * row widths stay predictable in the narrow 1/3-column layout.
+ */
+function relativeShort(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const days = Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24))
+  if (days <= 0) return 'now'
+  if (days < 7) return `${days}d`
+  if (days < 30) return `${Math.floor(days / 7)}w`
+  if (days < 365) return `${Math.floor(days / 30)}mo`
+  return `${Math.floor(days / 365)}y`
+}
+
+function CoverageRow({ player }: { player: CoveredPlayer }) {
+  return (
+    <li data-testid="coverage-row" className="flex items-center gap-2.5 px-3 py-2">
+      <div className="relative h-7 w-7 flex-shrink-0 overflow-hidden rounded-full bg-emerald-100/60 dark:bg-emerald-900/30">
+        {player.photoUrl ? (
+          <Image
+            src={player.photoUrl}
+            alt={player.playerName}
+            fill
+            sizes="28px"
+            className="object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <User className="h-3.5 w-3.5 text-emerald-700/60 dark:text-emerald-300/60" />
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100"
+          title={player.playerName}
+        >
+          {player.playerName}
+        </div>
+        {player.position ? (
+          <div className="font-mono text-[9px] font-medium tracking-[0.08em] text-zinc-500 uppercase dark:text-zinc-400">
+            {getPositionAbbr(player.position) ?? player.position}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-1">
+        {player.reportCount > 0 && (
+          <span
+            data-testid="report-count"
+            title={`${player.reportCount} report${player.reportCount === 1 ? '' : 's'}`}
+            className="inline-flex items-center gap-0.5 rounded-md bg-emerald-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-emerald-800 tabular-nums dark:bg-emerald-900/50 dark:text-emerald-200"
+          >
+            <FileText className="h-2.5 w-2.5" aria-hidden />
+            {player.reportCount}
+          </span>
+        )}
+        {player.isShortlisted && (
+          <span data-testid="shortlist-marker" aria-label="Shortlisted" title="Shortlisted">
+            <Star className="h-3 w-3 fill-amber-400 text-amber-500 dark:fill-amber-300 dark:text-amber-300" />
+          </span>
+        )}
+        {player.hasNotes && (
+          <span data-testid="notes-marker" aria-label="Has notes" title="Has notes">
+            <StickyNote className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+          </span>
+        )}
+      </div>
+
+      <span className="w-7 flex-shrink-0 text-right font-mono text-[10px] font-medium text-zinc-500 tabular-nums dark:text-zinc-400">
+        {relativeShort(player.lastActivityAt)}
+      </span>
+    </li>
+  )
+}
+
+export function SentrumPanel({ activity }: SentrumPanelProps) {
+  const coveredPlayers = activity.coveredPlayers
+  const coveredCount = coveredPlayers.length
+
+  if (coveredCount === 0) {
+    return (
+      <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        No coverage yet — start a scouting report.
+      </div>
+    )
+  }
+
+  // Derive "last activity" from the surviving sorted list rather than the
+  // query's pre-enrichment timestamp — covers the case where the most recent
+  // activity was on a player who has since left the squad and been filtered
+  // out of coveredPlayers.
+  const lastActivityForHeader = coveredPlayers[0]?.lastActivityAt ?? null
+  // Sum of report counts on surviving players. Same reason as above: drops
+  // reports on players no longer in the squad so the header total matches
+  // what the user sees in the list.
+  const totalReports = coveredPlayers.reduce((sum, p) => sum + p.reportCount, 0)
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      <header className="flex items-baseline justify-between gap-2 border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+        <span className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-zinc-500 uppercase tabular-nums dark:text-zinc-400">
+          <span className="inline-block h-1 w-1 shrink-0 rounded-full bg-emerald-500" />
+          {coveredCount} covered
+          <span className="text-zinc-300 dark:text-zinc-600">·</span>
+          {totalReports} {totalReports === 1 ? 'report' : 'reports'}
+        </span>
+        {lastActivityForHeader ? (
+          <span className="font-mono text-[10px] text-zinc-400 normal-case tabular-nums dark:text-zinc-500">
+            {relativeLong(lastActivityForHeader)}
+          </span>
+        ) : null}
+      </header>
+
+      <div className="relative">
+        <ul
+          data-testid="coverage-list"
+          className="max-h-72 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800/60"
+        >
+          {coveredPlayers.map(p => (
+            <CoverageRow key={String(p.playerUuid)} player={p} />
+          ))}
+        </ul>
+        {coveredPlayers.length > 6 && (
+          <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-white to-transparent dark:from-zinc-900" />
+        )}
+      </div>
+    </section>
+  )
+}

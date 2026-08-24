@@ -1,0 +1,51 @@
+<!-- @dsCard group="Components" viewport="700x280" name="Navigation" subtitle="Sidebar sections & nav items" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { margin: 0; padding: 16px; background: var(--surface-page); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { SidebarSection, SidebarNavItem } = window.SentrumDesignSystem_fd9502;
+
+const L = ({ name, size = 14 }) => {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (ref.current && window.lucide) {
+      window.lucide.createIcons({ root: ref.current.parentElement });
+    }
+  }, []);
+  return <i ref={ref} data-lucide={name} style={{ width: size, height: size, display: 'inline-flex' }}></i>;
+};
+
+function Demo() {
+  return (
+    <div className="snt-panel" style={{ width: 256, padding: '12px 8px' }}>
+      <SidebarSection icon={<L name="clipboard-list" size={16} />} title="Scouting">
+        <SidebarNavItem icon={<L name="file-text" />} label="Reports" active />
+        <SidebarNavItem icon={<L name="file-plus" />} label="New Report" />
+      </SidebarSection>
+      <SidebarSection icon={<L name="crosshair" size={16} />} title="Recruitment">
+        <SidebarNavItem icon={<L name="layout-grid" />} label="Board" />
+        <SidebarNavItem icon={<L name="list" />} label="Short Lists" />
+      </SidebarSection>
+      <SidebarSection icon={<L name="shield" size={16} />} title="Shadow Teams" defaultOpen={false}>
+        <SidebarNavItem icon={<L name="users" />} label="All Teams" />
+      </SidebarSection>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body>
+</html>

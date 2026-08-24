@@ -1,0 +1,640 @@
+'use client'
+
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import type { PolarBarDataPoint } from '@/components/profiles/shared/PolarBarChart'
+import { Eyebrow } from '../shared/Eyebrow'
+import { SubTabBar } from '../shared/SubTabBar'
+import { PerformanceFilters, type FilterOption } from '../performance/PerformanceFilters'
+import { PerformancePizza } from '../performance/PerformancePizza'
+import { TopMetricsList, type RankedMetric } from '../performance/TopMetricsList'
+import { MatchHistoryTable, type MatchRow } from '../performance/MatchHistoryTable'
+import { SeasonTrendChart, type TrendSeries } from '../performance/SeasonTrendChart'
+import { InsufficientSampleNotice } from '../performance/InsufficientSampleNotice'
+import { isLowSampleMinutes } from '@/lib/services/position-sample'
+import {
+  refreshTechnicalFiltersAction,
+  type RefreshTechnicalFiltersResult,
+} from '@/app/actions/performance-filter-actions'
+import type {
+  ImpectFilterOptions,
+  ImpectMetricFilters,
+  ImpectPositionOption,
+} from '@/lib/services/metric-service'
+
+type PerformanceMode = 'combined' | 'technical' | 'physical'
+
+export interface PerformanceTabProps {
+  comparisonGroup: string
+
+  /** Filter dropdown options (seasons + competitions). Pass null when
+   * the player has no Impect data — the filters hide automatically. */
+  filterOptions: ImpectFilterOptions | null
+  /** Filter values that produced the initial data set passed in. */
+  currentFilters: ImpectMetricFilters
+  /** Player id used to invoke the refresh server action. */
+  playerId: string
+  /** Position code used by the refresh action to resolve percentile group. */
+  positionCode: string | null
+  /** Positions the player has metrics for — drives the "vs" position selector. */
+  availablePositions: ImpectPositionOption[]
+
+  // Pizza data
+  technicalPizzaData: PolarBarDataPoint[]
+  physicalPizzaData: PolarBarDataPoint[]
+  technicalSubtitle?: string
+  physicalSubtitle?: string
+
+  // Top metrics
+  technicalMetrics: RankedMetric[]
+  physicalMetrics: RankedMetric[]
+  technicalContextLabel?: string
+  physicalContextLabel?: string
+
+  // Match history + trend
+  matchHistory: MatchRow[]
+  /**
+   * One series per metric the trend chart can plot. The user picks which
+   * one is active; defaults to the first technical metric in the list.
+   */
+  trendSeries: TrendSeries[]
+}
+
+/**
+ * Slug threaded into the refresh action. Pulled from the tenant context
+ * up-tree but provided here as a prop so the component stays test-friendly.
+ */
+function useTenantSlug(): string {
+  if (typeof window === 'undefined') return ''
+  const m = window.location.pathname.match(/^\/([^/]+)\/player\//)
+  return m?.[1] ?? ''
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0
+  return values.reduce((a, b) => a + b, 0) / values.length
+}
+
+/** Stable cache key for a season/competition/position filter combo. */
+export function filterKey(f: ImpectMetricFilters, positionExplicit = false): string {
+  // `positionExplicit` is part of the key on purpose: the SAME
+  // (season, competition, positionId) resolves differently for an explicit
+  // click (honoured, even a thin sample) vs a pick carried/prefetched across a
+  // season switch (re-resolved against the floor). Without it a click reuses an
+  // earlier floored result for that combo and appears to revert — e.g. carry CM
+  // into 2023/24 (floored → AM, cached), then click CM and get AM back.
+  return `${f.seasonId ?? 'all'}|${f.competitionId ?? 'all'}|${f.positionId ?? 'all'}${
+    positionExplicit ? '|x' : ''
+  }`
+}
+
+/** Map a server-action result into the local `tech` state shape. */
+function toTechState(r: RefreshTechnicalFiltersResult) {
+  return {
+    pizza: r.technicalPizzaData,
+    metrics: r.technicalMetrics,
+    subtitle: r.technicalSubtitle,
+    physPizza: r.physicalPizzaData,
+    physMetrics: r.physicalMetrics,
+    physSubtitle: r.physicalSubtitle,
+    matchHistory: r.matchHistory,
+    trendSeries: r.trendSeries,
+  }
+}
+
+/**
+ * Empty slices for a combo with no data at all. Replacing state with this
+ * (rather than leaving the previous combo's numbers in place) is what stops a
+ * stale radar lingering under a "no data" notice.
+ */
+const EMPTY_TECH: ReturnType<typeof toTechState> = {
+  pizza: [],
+  metrics: [],
+  subtitle: undefined,
+  physPizza: [],
+  physMetrics: [],
+  physSubtitle: undefined,
+  matchHistory: [],
+  trendSeries: [],
+}
+
+/** How many filter combos to prefetch in the background on mount. */
+const MAX_PREFETCH_COMBOS = 16
+
+/**
+ * Performance tab. Sub-tabs (Combined / Technical / Physical) toggle
+ * which domain(s) of the pizza + metrics show. Match history + season
+ * trend persist across sub-tabs.
+ */
+export function PerformanceTab({
+  comparisonGroup,
+  filterOptions,
+  currentFilters,
+  playerId,
+  positionCode,
+  availablePositions,
+  technicalPizzaData,
+  physicalPizzaData,
+  technicalSubtitle,
+  physicalSubtitle,
+  technicalMetrics,
+  physicalMetrics,
+  technicalContextLabel,
+  physicalContextLabel,
+  matchHistory,
+  trendSeries,
+}: PerformanceTabProps) {
+  const [mode, setMode] = useState<PerformanceMode>('combined')
+  const slug = useTenantSlug()
+
+  // Filter state — held locally so changes don't navigate. The action
+  // refetches Impect with the new filters and returns the slices that
+  // change; we replace those in local state on success. SkillCorner +
+  // initial match list stay in place until a refresh resolves.
+  const [filters, setFilters] = useState<ImpectMetricFilters>(currentFilters)
+  const [tech, setTech] = useState({
+    pizza: technicalPizzaData,
+    metrics: technicalMetrics,
+    subtitle: technicalSubtitle,
+    physPizza: physicalPizzaData,
+    physMetrics: physicalMetrics,
+    physSubtitle: physicalSubtitle,
+    matchHistory,
+    trendSeries,
+  })
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  // The "vs" selector's options are season-scoped (minutes per position differ
+  // by season), so they live in state and update from each refresh result —
+  // not frozen at the season the page first rendered with.
+  const [positions, setPositions] = useState<ImpectPositionOption[]>(availablePositions)
+  const [isPending, startTransition] = useTransition()
+
+  // Per-instance cache of filter-combo results, keyed by season|competition.
+  // Seeded once with the initial data so switching *back* to the starting
+  // combo is instant. Switching to a cached combo skips the server action
+  // entirely; the mount-time prefetch below fills this in the background so
+  // the *first* switch is instant too.
+  // `null` value = "this combo has no Impect data" (cached so we don't
+  // re-fetch or re-prefetch a known-empty combo).
+  const cacheRef = useRef<Map<string, RefreshTechnicalFiltersResult | null>>(new Map())
+  const seededRef = useRef(false)
+  if (!seededRef.current) {
+    seededRef.current = true
+    cacheRef.current.set(filterKey(currentFilters), {
+      technicalPizzaData,
+      technicalMetrics,
+      technicalSubtitle,
+      physicalPizzaData,
+      physicalMetrics,
+      physicalSubtitle,
+      matchHistory,
+      trendSeries,
+      positions: availablePositions,
+      appliedFilters: currentFilters,
+    })
+  }
+  // Tracks the most recently requested combo so an older in-flight fetch
+  // can't clobber a newer selection (important once prefetch + rapid
+  // switching are in play).
+  const latestKeyRef = useRef<string>(filterKey(currentFilters))
+
+  // Season → Competition cascade, year-based. A Concord season_id is one
+  // (competition, year); the scout thinks in *years*, so we present distinct
+  // years and — for the selected year — only that year's competitions, then
+  // resolve (year, competition) back to the underlying season_id the metric
+  // queries filter on. Derived once from the canonical seasonCompetitions list.
+  const { years, compsByYear, seasonIdByYearComp, metaBySeasonId } = useMemo(() => {
+    const sc = filterOptions?.seasonCompetitions ?? []
+    const yearsMap = new Map<number, FilterOption>()
+    const compsByYear = new Map<number, FilterOption[]>()
+    const compMinutes = new Map<number, Map<number, number>>() // year → compId → minutes (ordering)
+    const seasonIdByYearComp = new Map<string, number>()
+    const metaBySeasonId = new Map<number, { year: number; competitionId: number }>()
+    for (const e of sc) {
+      if (!yearsMap.has(e.year)) yearsMap.set(e.year, { id: e.year, label: e.yearLabel })
+      let mins = compMinutes.get(e.year)
+      if (!mins) {
+        mins = new Map()
+        compMinutes.set(e.year, mins)
+      }
+      mins.set(e.competitionId, Math.max(mins.get(e.competitionId) ?? 0, e.minutes))
+      let comps = compsByYear.get(e.year)
+      if (!comps) {
+        comps = []
+        compsByYear.set(e.year, comps)
+      }
+      if (!comps.some(c => c.id === e.competitionId)) {
+        comps.push({ id: e.competitionId, label: e.competitionLabel })
+      }
+      seasonIdByYearComp.set(`${e.year}:${e.competitionId}`, e.seasonId)
+      metaBySeasonId.set(e.seasonId, { year: e.year, competitionId: e.competitionId })
+    }
+    const years = Array.from(yearsMap.values()).sort((a, b) => b.id - a.id)
+    for (const [year, comps] of compsByYear) {
+      const mins = compMinutes.get(year)!
+      comps.sort((a, b) => (mins.get(b.id) ?? 0) - (mins.get(a.id) ?? 0))
+    }
+    return { years, compsByYear, seasonIdByYearComp, metaBySeasonId }
+  }, [filterOptions])
+
+  // The current season_id (carried in filters) maps to exactly one (year, comp).
+  const currentMeta = filters.seasonId != null ? metaBySeasonId.get(filters.seasonId) : undefined
+  const currentYear = currentMeta?.year ?? null
+  const currentCompetitionId = currentMeta?.competitionId ?? null
+  const visibleCompetitions = currentYear != null ? (compsByYear.get(currentYear) ?? []) : []
+
+  // Resolve a (year, competition) pick back to a concrete season_id. If the
+  // requested competition isn't played that year, fall back to the year's
+  // most-played one (competitions are ordered minutes-desc).
+  const resolveSeason = (year: number, competitionId: number | null) => {
+    const comps = compsByYear.get(year) ?? []
+    const chosen =
+      competitionId != null && comps.some(c => c.id === competitionId)
+        ? competitionId
+        : (comps[0]?.id ?? null)
+    const seasonId = chosen != null ? (seasonIdByYearComp.get(`${year}:${chosen}`) ?? null) : null
+    return { seasonId, competitionId: chosen }
+  }
+
+  // Push a result into local state, HIDING whichever feed came back empty
+  // instead of leaving its previous numbers on screen. `null` = the combo has
+  // no data at all → clear everything. A single-feed result (e.g. physical but
+  // no Impect) keeps the present panel and blanks the absent one, with a note
+  // naming the gap so the empty side isn't mistaken for a render bug.
+  function applyResult(data: RefreshTechnicalFiltersResult | null) {
+    if (!data) {
+      setTech(EMPTY_TECH)
+      setRefreshError('No performance data for this filter combo')
+      return
+    }
+    setTech(toTechState(data))
+    // Season-scoped position options + the position the action actually applied
+    // (re-resolved when the old pick wasn't played this season).
+    setPositions(data.positions)
+    setFilters(data.appliedFilters)
+    const hasTechnical = data.technicalPizzaData.length > 0 || data.technicalMetrics.length > 0
+    const hasPhysical = data.physicalPizzaData.length > 0 || data.physicalMetrics.length > 0
+    setRefreshError(
+      !hasTechnical && hasPhysical
+        ? 'No Impect data for this filter combo'
+        : hasTechnical && !hasPhysical
+          ? 'No SkillCorner data for this filter combo'
+          : null
+    )
+  }
+
+  function applyFilters(next: ImpectMetricFilters, opts?: { positionExplicit?: boolean }) {
+    // A position click honours the pick outright; a season/competition switch
+    // (no flag) re-resolves against the floor. The flag is part of the cache key
+    // so an explicit click never reuses an earlier floored result for the same
+    // combo.
+    const explicit = opts?.positionExplicit ?? false
+    const key = filterKey(next, explicit)
+    setFilters(next)
+    setRefreshError(null)
+    latestKeyRef.current = key
+
+    if (cacheRef.current.has(key)) {
+      applyResult(cacheRef.current.get(key) ?? null)
+      return
+    }
+
+    startTransition(async () => {
+      const result = await refreshTechnicalFiltersAction({
+        slug,
+        playerId,
+        positionCode: next.positionCode ?? positionCode,
+        filters: next,
+        positionExplicit: explicit,
+      })
+      // Drop stale responses — the user has since picked another combo.
+      if (latestKeyRef.current !== key) return
+      if (result.error) {
+        setRefreshError(result.error)
+        return
+      }
+      // Cache the verdict (data or definitive empty) so re-selecting is instant.
+      cacheRef.current.set(key, result.data ?? null)
+      applyResult(result.data ?? null)
+    })
+  }
+
+  // Background prefetch: on mount, warm the cache for every one-dropdown-away
+  // combo (each year keeping the current competition, each competition within
+  // the current year) so the first filter switch is instant. Runs once, after a
+  // short delay so it doesn't compete with the initial paint, with limited
+  // concurrency to avoid hammering the Impect/SkillCorner backends.
+  const prefetchedRef = useRef(false)
+  useEffect(() => {
+    if (prefetchedRef.current || !filterOptions || !slug || !playerId) return
+    prefetchedRef.current = true
+
+    const base = filters // = currentFilters at mount
+    const combos: ImpectMetricFilters[] = []
+    const baseMeta = base.seasonId != null ? metaBySeasonId.get(base.seasonId) : undefined
+    const baseYear = baseMeta?.year ?? null
+    const baseCompId = baseMeta?.competitionId ?? null
+    // Each OTHER year — keep the current competition when that year has it, else
+    // its most-played (exactly what onChangeSeason resolves to). Spread `base`
+    // so prefetched combos keep the current position selection.
+    for (const y of years) {
+      if (y.id === baseYear) continue
+      const { seasonId, competitionId } = resolveSeason(y.id, baseCompId)
+      if (seasonId != null) combos.push({ ...base, seasonId, competitionId })
+    }
+    // Each OTHER competition within the current year.
+    if (baseYear != null) {
+      for (const c of compsByYear.get(baseYear) ?? []) {
+        if (c.id === baseCompId) continue
+        const { seasonId, competitionId } = resolveSeason(baseYear, c.id)
+        if (seasonId != null) combos.push({ ...base, seasonId, competitionId })
+      }
+    }
+
+    const seen = new Set<string>([filterKey(base)])
+    const targets: ImpectMetricFilters[] = []
+    for (const f of combos) {
+      const k = filterKey(f)
+      if (seen.has(k) || cacheRef.current.has(k)) continue
+      seen.add(k)
+      targets.push(f)
+      if (targets.length >= MAX_PREFETCH_COMBOS) break
+    }
+    if (targets.length === 0) return
+
+    let cancelled = false
+    const queue = [...targets]
+    const worker = async () => {
+      while (!cancelled && queue.length > 0) {
+        const f = queue.shift()
+        if (!f) break
+        const k = filterKey(f)
+        if (cacheRef.current.has(k)) continue
+        try {
+          const res = await refreshTechnicalFiltersAction({
+            slug,
+            playerId,
+            positionCode: f.positionCode ?? positionCode,
+            filters: f,
+          })
+          if (!cancelled) {
+            if (res.data) cacheRef.current.set(k, res.data)
+            // Only cache a *definitive* empty (no error) — transient errors
+            // should be retried live when the user actually picks the combo.
+            else if (!res.error) cacheRef.current.set(k, null)
+          }
+        } catch {
+          // Prefetch is best-effort — a failed combo just falls back to a
+          // live fetch when the user actually selects it.
+        }
+      }
+    }
+
+    const timer = setTimeout(() => {
+      // Two workers = concurrency of 2.
+      void Promise.all([worker(), worker()])
+    }, 400)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+    // Mount-once: filters/slug/playerId/positionCode are stable for the life
+    // of this component instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const technicalComposite = average(tech.pizza.map(d => d.percentile))
+  const physicalComposite = average(tech.physPizza.map(d => d.percentile))
+
+  const showTechnical = mode === 'combined' || mode === 'technical'
+  const showPhysical = mode === 'combined' || mode === 'physical'
+
+  // When the SELECTED position's sample is too small, its percentile radar +
+  // comparison bars would be misleading — show an insufficient-sample notice
+  // instead. Matched on the applied positionId against the season-scoped
+  // `positions` (which carry that season's minutes). Raw match history + season
+  // trend below are unaffected (they aren't cohort-relative percentiles).
+  const selectedPosition = positions.find(p => p.positionId === filters.positionId) ?? null
+  const lowSamplePosition =
+    selectedPosition && isLowSampleMinutes(selectedPosition.minutes) ? selectedPosition : null
+
+  return (
+    <div className="space-y-6">
+      {/* Sub-tabs + filters */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+        <SubTabBar
+          tabs={[
+            { id: 'combined', label: 'Combined' },
+            { id: 'technical', label: 'Technical' },
+            { id: 'physical', label: 'Physical' },
+          ]}
+          active={mode}
+          onChange={id => setMode(id as PerformanceMode)}
+          className="border-b-0 pb-0"
+        />
+        <div className="flex flex-col items-end gap-1.5">
+          {/* The Season picker carries the YEAR (not season_id); the Competition
+              picker carries the competition. PerformanceFilters is presentational
+              — it just renders the option lists + selected value + onChange — so
+              we hand it the year-derived lists and resolve back to a season_id in
+              the handlers. */}
+          <PerformanceFilters
+            seasons={years}
+            competitions={visibleCompetitions}
+            seasonId={currentYear}
+            competitionId={currentCompetitionId}
+            comparisonGroup={comparisonGroup}
+            positions={positions}
+            positionId={filters.positionId ?? null}
+            onChangePosition={(positionId, positionCode) =>
+              applyFilters({ ...filters, positionId, positionCode }, { positionExplicit: true })
+            }
+            onChangeSeason={year => {
+              // The year picker never emits null (no "all years" option), but the
+              // shared prop type allows it — guard so `year` narrows to a number.
+              if (year == null) return
+              // Picking a year resolves to a season_id: keep the current
+              // competition if that year has it, else the year's most-played one.
+              const { seasonId, competitionId } = resolveSeason(year, currentCompetitionId)
+              applyFilters({ ...filters, seasonId, competitionId })
+            }}
+            onChangeCompetition={competitionId => {
+              // Picking a competition (within the current year) resolves to that
+              // (year, competition)'s season_id.
+              if (currentYear == null) return
+              const resolved = resolveSeason(currentYear, competitionId)
+              applyFilters({ ...filters, seasonId: resolved.seasonId, competitionId })
+            }}
+            disabled={isPending}
+          />
+          {refreshError && (
+            <span className="font-mono text-[10px] tracking-wider text-amber-600 uppercase">
+              {refreshError}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Pizza + ranked-metric block. In single-domain mode (Technical
+          or Physical) the pizza paired with its own ranked list as a
+          side-by-side 2-col layout — keeps the pizza from floating
+          alone in a sea of whitespace and gives the ranked list room
+          to breathe at the same vertical extent. Combined mode falls
+          back to the existing stack: two pizzas side-by-side, two
+          ranked lists side-by-side below. */}
+      <div className={`transition-opacity ${isPending ? 'pointer-events-none opacity-50' : ''}`}>
+        {lowSamplePosition ? (
+          <InsufficientSampleNotice
+            positionLabel={lowSamplePosition.label}
+            minutes={lowSamplePosition.minutes}
+          />
+        ) : mode === 'combined' ? (
+          <div className="space-y-6">
+            {(tech.pizza.length >= 3 || tech.physPizza.length >= 3) && (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {tech.pizza.length >= 3 && (
+                  <PerformancePizza
+                    title="Technical · Impect"
+                    subtitle={tech.subtitle}
+                    data={tech.pizza}
+                    compositePercentile={technicalComposite}
+                    colorScheme="teal"
+                    size={340}
+                    spinIn
+                  />
+                )}
+                {tech.physPizza.length >= 3 && (
+                  <PerformancePizza
+                    title="Physical · SkillCorner"
+                    subtitle={tech.physSubtitle}
+                    data={tech.physPizza}
+                    compositePercentile={physicalComposite}
+                    colorScheme="purple"
+                    size={340}
+                    spinIn
+                  />
+                )}
+              </div>
+            )}
+            {(tech.metrics.length > 0 || tech.physMetrics.length > 0) && (
+              <div>
+                <div className="mb-3">
+                  <Eyebrow>Top metrics · ranked by percentile vs peers</Eyebrow>
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {tech.metrics.length > 0 && (
+                    <TopMetricsList
+                      title="Technical · Impect"
+                      subtitle={technicalContextLabel}
+                      metrics={tech.metrics}
+                    />
+                  )}
+                  {tech.physMetrics.length > 0 && (
+                    <TopMetricsList
+                      title="Physical · SkillCorner"
+                      subtitle={physicalContextLabel}
+                      metrics={tech.physMetrics}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <SingleDomainBlock
+            domain={showTechnical ? 'technical' : 'physical'}
+            pizzaData={showTechnical ? tech.pizza : tech.physPizza}
+            pizzaSubtitle={showTechnical ? tech.subtitle : tech.physSubtitle}
+            pizzaComposite={showTechnical ? technicalComposite : physicalComposite}
+            metrics={showTechnical ? tech.metrics : tech.physMetrics}
+            metricsSubtitle={showTechnical ? technicalContextLabel : physicalContextLabel}
+          />
+        )}
+      </div>
+
+      {/* Match history + trend dim during a filter refresh — same as the
+          pizza block above. The data itself comes from local state which
+          updates when the action resolves. */}
+      <div
+        className={`space-y-6 transition-opacity ${isPending ? 'pointer-events-none opacity-50' : ''}`}
+      >
+        {tech.matchHistory.length > 0 && (
+          <MatchHistoryTable matches={tech.matchHistory} mode={mode} />
+        )}
+        {tech.trendSeries.length > 0 && (
+          <SeasonTrendChart series={filterSeriesForMode(tech.trendSeries, mode)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Slice the available trend series down to the current mode. Series are
+ * tagged via `id` prefix:
+ *   "tech_*" → technical (Impect-derived)
+ *   "phys_*" → physical (SkillCorner-derived)
+ * Combined mode returns the whole list. A series without a prefix
+ * always shows (defensive — covers older callers).
+ */
+function filterSeriesForMode(series: TrendSeries[], mode: PerformanceMode): TrendSeries[] {
+  if (mode === 'combined') return series
+  const prefix = mode === 'physical' ? 'phys_' : 'tech_'
+  return series.filter(s => !s.id.includes('_') || s.id.startsWith(prefix))
+}
+
+/**
+ * Single-domain pizza + ranked-list pairing. Renders them side-by-side
+ * at the same height so the pizza doesn't float in dead horizontal
+ * space (its natural footprint is ~420px square but the section is
+ * 1000px+ wide on desktop).
+ */
+function SingleDomainBlock({
+  domain,
+  pizzaData,
+  pizzaSubtitle,
+  pizzaComposite,
+  metrics,
+  metricsSubtitle,
+}: {
+  domain: 'technical' | 'physical'
+  pizzaData: PolarBarDataPoint[]
+  pizzaSubtitle?: string
+  pizzaComposite: number
+  metrics: RankedMetric[]
+  metricsSubtitle?: string
+}) {
+  const hasPizza = pizzaData.length >= 3
+  const hasMetrics = metrics.length > 0
+  if (!hasPizza && !hasMetrics) return null
+  const title = domain === 'technical' ? 'Technical · Impect' : 'Physical · SkillCorner'
+  const colorScheme = domain === 'technical' ? 'teal' : 'purple'
+
+  return (
+    <div className="grid grid-cols-1 items-stretch gap-2 md:grid-cols-2">
+      {hasPizza && (
+        <PerformancePizza
+          // Remount when the domain flips (technical↔physical) so the radar
+          // re-spins to match the metric bars, which already re-fill because
+          // their rows are keyed by label.
+          key={domain}
+          title={title}
+          subtitle={pizzaSubtitle}
+          data={pizzaData}
+          compositePercentile={pizzaComposite}
+          colorScheme={colorScheme}
+          size={340}
+          spinIn
+        />
+      )}
+      {hasMetrics && (
+        <div className="flex flex-col gap-3">
+          <Eyebrow>Top metrics · ranked by percentile vs peers</Eyebrow>
+          <div className="flex-1">
+            <TopMetricsList title={title} subtitle={metricsSubtitle} metrics={metrics} />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

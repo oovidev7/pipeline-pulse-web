@@ -1,0 +1,43 @@
+/**
+ * Percentile tier system for the v2 player profile.
+ *
+ * Single source of truth for mapping percentile rank → tier label,
+ * hex colour, Tailwind bg class, and Tailwind text class. Matches the
+ * tiers used by `components/profiles/shared/PolarBarChart.tsx`.
+ */
+
+export type PercentileTier = 'elite' | 'above-avg' | 'average' | 'below-avg' | 'low'
+
+interface TierColors {
+  readonly hex: string
+  readonly bg: string
+  readonly text: string
+}
+
+const TIER_COLORS: Record<PercentileTier, TierColors> = {
+  elite: { hex: '#22c55e', bg: 'bg-emerald-500', text: 'text-emerald-600' },
+  'above-avg': { hex: '#4ade80', bg: 'bg-emerald-400', text: 'text-emerald-600' },
+  average: { hex: '#eab308', bg: 'bg-yellow-500', text: 'text-yellow-600' },
+  'below-avg': { hex: '#f97316', bg: 'bg-orange-500', text: 'text-orange-600' },
+  low: { hex: '#ef4444', bg: 'bg-red-500', text: 'text-red-600' },
+}
+
+export function getPercentileTier(percentile: number): PercentileTier {
+  if (percentile >= 90) return 'elite'
+  if (percentile >= 75) return 'above-avg'
+  if (percentile >= 50) return 'average'
+  if (percentile >= 25) return 'below-avg'
+  return 'low'
+}
+
+export function getPercentileColor(percentile: number): string {
+  return TIER_COLORS[getPercentileTier(percentile)].hex
+}
+
+export function getPercentileBg(percentile: number): string {
+  return TIER_COLORS[getPercentileTier(percentile)].bg
+}
+
+export function getPercentileTextColor(percentile: number): string {
+  return TIER_COLORS[getPercentileTier(percentile)].text
+}

@@ -1,0 +1,22 @@
+<!-- @dsCard group="Spacing" viewport="700x170" name="Elevation" subtitle="Nested → elevated → floating shadow tiers" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 24px 16px; background: var(--shell-bg); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .s { height: 84px; background: var(--surface-card); border: 1px solid var(--border-card); border-radius: var(--radius-xl); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .s b { font-size: 12px; font-weight: 600; }
+  .s span { font-size: 10.5px; color: var(--text-muted); text-align: center; padding: 0 10px; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="s" style="box-shadow: var(--shadow-nested);"><b>nested</b><span>sidebar &amp; content panels in the shell</span></div>
+    <div class="s" style="box-shadow: var(--shadow-elevated);"><b>elevated</b><span>composer, modals, dropdowns</span></div>
+    <div class="s" style="box-shadow: var(--shadow-floating);"><b>floating</b><span>hover / focus lift</span></div>
+  </div>
+</body>
+</html>

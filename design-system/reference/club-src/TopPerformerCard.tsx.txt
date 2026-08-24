@@ -1,0 +1,177 @@
+'use client'
+
+import { useState } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
+import { User } from 'lucide-react'
+import type { TopPerformers, PerformerEntry } from '@/lib/types/profiles'
+import { useTenantLink } from '@/lib/context/tenant-context'
+import { Eyebrow } from '@/components/profiles/player-v2/shared/Eyebrow'
+import { cn } from '@/lib/utils'
+
+interface TopPerformerCardProps {
+  performers: TopPerformers
+}
+
+type Metric = 'goals' | 'assists' | 'minutes'
+
+const METRIC_LABELS: Record<Metric, string> = {
+  goals: 'Goals',
+  assists: 'Assists',
+  minutes: 'Minutes',
+}
+
+export function TopPerformerCard({ performers }: TopPerformerCardProps) {
+  const tenantLink = useTenantLink()
+  const initial: Metric =
+    performers.topScorers.length > 0
+      ? 'goals'
+      : performers.topAssisters.length > 0
+        ? 'assists'
+        : 'minutes'
+  const [metric, setMetric] = useState<Metric>(initial)
+
+  const list =
+    metric === 'goals'
+      ? performers.topScorers
+      : metric === 'assists'
+        ? performers.topAssisters
+        : performers.topByMinutes
+
+  return (
+    <section className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white p-4 transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      <header className="mb-3 space-y-2">
+        <Eyebrow>Top Performers</Eyebrow>
+        <div
+          role="tablist"
+          aria-label="Metric"
+          className="inline-flex gap-0.5 rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800"
+        >
+          {(Object.keys(METRIC_LABELS) as Metric[]).map(m => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={metric === m}
+              onClick={() => setMetric(m)}
+              className={cn(
+                'rounded px-2.5 py-1 text-[10px] font-medium tracking-[0.06em] uppercase transition-colors',
+                metric === m
+                  ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                  : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+              )}
+            >
+              {METRIC_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {list.length === 0 ? (
+        <div className="text-sm text-zinc-500 dark:text-zinc-400">No data</div>
+      ) : (
+        <ul className="-mx-1.5 space-y-0.5">
+          {list.map((entry, i) => (
+            <li key={String(entry.playerUuid)}>
+              {entry.playerUuid ? (
+                <Link
+                  href={tenantLink(`/player/${entry.playerUuid}`)}
+                  className="group block rounded-md px-1.5 py-1.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                >
+                  <PerformerRow entry={entry} rank={i + 1} metric={metric} />
+                </Link>
+              ) : (
+                // Defensive: type guarantees playerUuid is present, but if
+                // dirty data slips through we'd rather render a static row
+                // than a /player/undefined link.
+                <div className="block rounded-md px-1.5 py-1.5">
+                  <PerformerRow entry={entry} rank={i + 1} metric={metric} />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function PerformerRow({
+  entry,
+  rank,
+  metric,
+}: {
+  entry: PerformerEntry
+  rank: number
+  metric: Metric
+}) {
+  const primary =
+    metric === 'goals' ? entry.goals : metric === 'assists' ? entry.assists : entry.minutes
+  const secondaryBits =
+    metric === 'goals'
+      ? [`${entry.assists}a`, `${entry.appearances} apps`]
+      : metric === 'assists'
+        ? [`${entry.goals}g`, `${entry.appearances} apps`]
+        : [`${entry.goals}g`, `${entry.assists}a`]
+  const isLeader = rank === 1
+
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className={cn(
+          'w-3 text-right font-mono text-[10px] font-medium tabular-nums',
+          isLeader ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400 dark:text-zinc-500'
+        )}
+      >
+        {rank}
+      </span>
+      <div
+        className={cn(
+          'relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800',
+          isLeader && 'ring-2 ring-emerald-400/60 dark:ring-emerald-500/50'
+        )}
+      >
+        {entry.photoUrl ? (
+          <Image
+            src={entry.photoUrl}
+            alt={entry.playerName}
+            fill
+            className="object-cover"
+            sizes="36px"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <User className="h-4 w-4 text-zinc-400" />
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate text-sm transition-colors group-hover:text-emerald-700 dark:group-hover:text-emerald-400',
+            isLeader
+              ? 'font-semibold text-zinc-900 dark:text-zinc-100'
+              : 'font-medium text-zinc-700 dark:text-zinc-300'
+          )}
+        >
+          {entry.playerName}
+        </div>
+        <div className="truncate font-mono text-[11px] text-zinc-500 tabular-nums dark:text-zinc-400">
+          {secondaryBits.join(' · ')}
+        </div>
+      </div>
+      <div className="flex flex-col items-end">
+        <span
+          className={cn(
+            'font-outfit text-lg font-semibold tabular-nums',
+            isLeader ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-400'
+          )}
+        >
+          {primary.toLocaleString()}
+        </span>
+        <span className="font-mono text-[9px] font-medium tracking-[0.12em] text-zinc-400 uppercase dark:text-zinc-500">
+          {metric === 'minutes' ? 'min' : metric}
+        </span>
+      </div>
+    </div>
+  )
+}

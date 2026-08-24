@@ -1,0 +1,224 @@
+'use client'
+
+import Image from 'next/image'
+import Link from 'next/link'
+import { MapPin, LandPlot, Calendar, ExternalLink } from 'lucide-react'
+import type { ClubProfile, ClubStandingsData } from '@/lib/types/profiles'
+import { useTenantLink } from '@/lib/context/tenant-context'
+
+interface ClubHeaderProps {
+  profile: ClubProfile
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+/** Uppercase section-label utility — mirrors the v2 player profile hero. */
+const LABEL_CLASS =
+  'text-[11px] font-semibold tracking-[0.08em] uppercase text-zinc-500 dark:text-zinc-400 leading-none'
+
+export function ClubHeader({ profile }: ClubHeaderProps) {
+  const tenantLink = useTenantLink()
+  const standings = profile.currentSeasonStandings
+  const prev = profile.previousSeasonStandings
+
+  return (
+    <div className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:gap-8">
+          {/* Crest + identity */}
+          <div className="flex min-w-0 items-center gap-5 lg:flex-1">
+            <div className="relative flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-gradient-to-br from-stone-100 to-stone-200 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] lg:h-20 lg:w-20 dark:from-zinc-700 dark:to-zinc-800">
+              {profile.crest ? (
+                <Image
+                  src={profile.crest}
+                  alt={profile.name}
+                  width={64}
+                  height={64}
+                  className="h-14 w-14 object-contain lg:h-16 lg:w-16"
+                />
+              ) : (
+                <span className="font-outfit text-2xl font-bold text-zinc-400 dark:text-zinc-500">
+                  {profile.tla}
+                </span>
+              )}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              {profile.competition && (
+                <Link
+                  href={tenantLink(`/league/${profile.competition.uuid}`)}
+                  data-testid="club-league-link"
+                  className="inline-block"
+                >
+                  <span
+                    data-testid="club-league-badge"
+                    className="truncate text-[13px] font-semibold tracking-[0.08em] text-zinc-500 uppercase transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  >
+                    {profile.competition.name}
+                  </span>
+                </Link>
+              )}
+              <h1
+                className="font-outfit mt-1 truncate text-3xl font-semibold tracking-[-0.02em] text-zinc-950 lg:text-[36px] lg:leading-[1.08] dark:text-zinc-100"
+                data-testid="club-name"
+              >
+                {profile.name}
+              </h1>
+
+              {/* Metadata */}
+              <div
+                className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-500 dark:text-zinc-400"
+                data-testid="club-metadata"
+              >
+                {profile.venue && (
+                  <span className="flex items-center gap-1.5" data-testid="club-venue">
+                    <LandPlot className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{profile.venue}</span>
+                    {profile.venueCapacity && (
+                      <span className="text-zinc-400 dark:text-zinc-500">
+                        ({profile.venueCapacity.toLocaleString()})
+                      </span>
+                    )}
+                  </span>
+                )}
+                {profile.city && (
+                  <span className="flex items-center gap-1.5" data-testid="club-city">
+                    <MapPin className="h-4 w-4 shrink-0" />
+                    {profile.city}
+                  </span>
+                )}
+                {profile.founded && (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4 shrink-0" />
+                    Est. {profile.founded}
+                  </span>
+                )}
+                {profile.website && (
+                  <a
+                    href={profile.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-emerald-700 hover:underline dark:text-emerald-400"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    Official Website
+                  </a>
+                )}
+              </div>
+
+              {(profile.colors || profile.coach) && (
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {profile.colors && <span className="truncate">{profile.colors}</span>}
+                  {profile.coach && (
+                    <span className="truncate">
+                      <span className="text-zinc-400 dark:text-zinc-500">Manager · </span>
+                      {profile.coach.name}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* KPI strip — sibling stat modules with hairline dividers, matching
+              the v2 player hero. Right-aligned on lg+, full band on mobile. */}
+          {standings && <ClubKpiStrip standings={standings} previous={prev ?? null} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface ClubKpiStripProps {
+  standings: ClubStandingsData
+  previous: ClubStandingsData | null | undefined
+}
+
+function ClubKpiStrip({ standings, previous }: ClubKpiStripProps) {
+  const positionDelta =
+    previous && previous.position ? previous.position - standings.position : null
+  const gd = standings.goalDifference
+  const gdLabel = gd > 0 ? `+${gd}` : `${gd}`
+
+  return (
+    <div className="flex shrink-0 items-stretch gap-[22px]">
+      <Kpi
+        label="Position"
+        value={ordinal(standings.position)}
+        sub={
+          positionDelta && positionDelta !== 0
+            ? {
+                tone: positionDelta > 0 ? 'up' : 'down',
+                text: `${positionDelta > 0 ? '↑' : '↓'} ${Math.abs(positionDelta)} vs last season`,
+              }
+            : null
+        }
+      />
+      <div className="w-px self-stretch bg-zinc-200 dark:bg-zinc-800" />
+      <Kpi
+        label="Points"
+        value={standings.points.toString()}
+        sub={{ text: `${standings.played} played` }}
+      />
+      <div className="w-px self-stretch bg-zinc-200 dark:bg-zinc-800" />
+      <Kpi
+        label="Goal diff"
+        value={gdLabel}
+        tone={gd > 0 ? 'up' : gd < 0 ? 'down' : 'neutral'}
+        sub={
+          standings.goalsFor != null && standings.goalsAgainst != null
+            ? { text: `${standings.goalsFor} for · ${standings.goalsAgainst} ag.` }
+            : null
+        }
+      />
+    </div>
+  )
+}
+
+interface KpiSub {
+  tone?: 'up' | 'down'
+  text: string
+}
+
+interface KpiProps {
+  label: string
+  value: string
+  sub?: KpiSub | null
+  tone?: 'up' | 'down' | 'neutral'
+}
+
+function Kpi({ label, value, sub, tone = 'neutral' }: KpiProps) {
+  const toneClass =
+    tone === 'up'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : tone === 'down'
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-zinc-950 dark:text-zinc-100'
+  const subToneClass =
+    sub?.tone === 'up'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : sub?.tone === 'down'
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-zinc-500 dark:text-zinc-400'
+  return (
+    <div className="flex flex-1 flex-col justify-center gap-1.5 lg:flex-none lg:items-end">
+      <span className={LABEL_CLASS}>{label}</span>
+      <span
+        className={`font-outfit text-2xl leading-none font-semibold tracking-[-0.01em] tabular-nums lg:text-3xl ${toneClass}`}
+      >
+        {value}
+      </span>
+      {sub ? (
+        <span className={`text-[11px] font-medium tabular-nums ${subToneClass}`}>{sub.text}</span>
+      ) : (
+        <span aria-hidden className="text-[11px] opacity-0 select-none">
+          &nbsp;
+        </span>
+      )}
+    </div>
+  )
+}

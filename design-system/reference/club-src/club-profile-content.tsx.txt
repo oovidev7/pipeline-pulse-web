@@ -1,0 +1,438 @@
+'use client'
+
+import { useState, useEffect, useMemo, useCallback, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useTenant, useTenantFlag } from '@/lib/context/tenant-context'
+import { TenantFeatureFlag } from '@/lib/feature-flags/types'
+import type { User } from '@supabase/supabase-js'
+import type { ClubProfile, SquadPlayer } from '@/lib/types/profiles'
+import { LeagueStandings } from '@/components/profiles/LeagueStandings'
+import type { SquadMember } from '@/lib/services/my-clubs-service'
+import { ClubHeader } from '@/components/profiles/ClubHeader'
+import { ClubStats } from '@/components/profiles/ClubStats'
+import { ClubSquad } from '@/components/profiles/ClubSquad'
+import { SquadAnalysis } from '@/components/my-clubs/squad-analysis/SquadAnalysis'
+import { SquadCompare } from '@/components/profiles/club-compare/SquadCompare'
+import { FixturesResultsTab } from '@/components/profiles/club/FixturesResultsTab'
+import { LastMatchFormation } from '@/components/profiles/club/LastMatchFormation'
+import { AgeProfileCard } from '@/components/profiles/club/AgeProfileCard'
+import { FormCard } from '@/components/profiles/club/FormCard'
+import { AvailabilityCard } from '@/components/profiles/club/AvailabilityCard'
+import { TopPerformerCard } from '@/components/profiles/club/TopPerformerCard'
+import { TacticalIdentityCard } from '@/components/profiles/club/TacticalIdentityCard'
+import { UpcomingFixturesCard } from '@/components/profiles/club/UpcomingFixturesCard'
+import {
+  AddToCalendarFixturesCard,
+  type ClubUpcomingFixture,
+} from '@/components/profiles/club/AddToCalendarFixturesCard'
+import { TransfersCard } from '@/components/profiles/club/TransfersCard'
+import { SentrumPanel } from '@/components/profiles/club/SentrumPanel'
+import { AskAboutButton } from '@/components/profiles/AskAboutButton'
+import { Eyebrow } from '@/components/profiles/player-v2/shared/Eyebrow'
+import { trackClubProfileView, trackAskAboutClick } from '@/lib/analytics'
+import { cn } from '@/lib/utils'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { BarChart3, List, Scale } from 'lucide-react'
+
+interface ClubProfileContentProps {
+  profile: ClubProfile
+  user?: User
+  existingCalendarMatchIds?: string[]
+}
+
+type ProfileTab = 'overview' | 'squad' | 'table' | 'fixtures'
+
+const PROFILE_TABS: { key: ProfileTab; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'squad', label: 'Squad' },
+  { key: 'table', label: 'Table' },
+  { key: 'fixtures', label: 'Fixtures & Results' },
+]
+
+function isProfileTab(v: string | null): v is ProfileTab {
+  return v === 'overview' || v === 'squad' || v === 'table' || v === 'fixtures'
+}
+
+function toSquadMembers(players: SquadPlayer[]): SquadMember[] {
+  return players.map(p => ({
+    id: parseInt(p.id),
+    uuid: p.uuid,
+    name: p.name,
+    firstName: null,
+    lastName: null,
+    mainPosition: p.mainPosition ?? null,
+    positionGroup: p.positionCategory ?? null,
+    nationality: p.nationality ?? null,
+    dateOfBirth: null,
+    age: p.age ?? null,
+    height: null,
+    foot: null,
+    marketValue: p.marketValue ?? null,
+    contractExpires: p.contractExpires ?? null,
+    imageUrl: p.photoUrl ?? null,
+    shirtNumber: p.shirtNumber ?? null,
+    // Prefer all-competitions minutes so the Overview tab stays consistent
+    // with apps/goals/assists which are aggregated across all comps. The
+    // base SquadPlayer.minutesPlayed defaults to league-only — use the
+    // explicit all-comp field when available, falling back to league.
+    minutesPlayed: p.minutesPlayedAll ?? p.minutesPlayed ?? 0,
+    goals: p.goals ?? 0,
+    assists: p.assists ?? 0,
+    matchesPlayed: p.matchesPlayed ?? 0,
+    teamId: 0,
+    teamName: null,
+    clubTeamId: null,
+    clubName: null,
+    clubImageUrl: null,
+    weeklyWage: null,
+    effectiveMarketValue: p.marketValue ?? null,
+    effectiveContractExpires: p.contractExpires ?? null,
+    marketValueSource: 'api',
+    contractExpiresSource: 'api',
+    overrideMetadata: null,
+    transferFee: null,
+    contractStartDate: null,
+    signingBonus: null,
+    contracts: [],
+    squadMemberId: null,
+    pxt: null,
+  }))
+}
+
+export function ClubProfileContent({
+  profile,
+  existingCalendarMatchIds = [],
+}: ClubProfileContentProps) {
+  const { slug } = useTenant()
+  const calendarEnabled = useTenantFlag(TenantFeatureFlag.Calendar)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [squadTab, setSquadTab] = useState<'list' | 'overview'>('list')
+  const [compareOpen, setCompareOpen] = useState(false)
+
+  // Top-level tab state is local React state — using router.push for this
+  // would trigger a Next.js soft navigation and re-run the server-side
+  // getClubProfile() data fetch on every tab click. The data is already
+  // loaded; the tab is pure UI state. We mirror to the URL via
+  // history.replaceState so deep links (?tab=squad) still work without
+  // paying the server-refetch cost. popstate keeps the back button in sync.
+  const initialTab = useMemo<ProfileTab>(() => {
+    const raw = searchParams.get('tab')
+    return isProfileTab(raw) ? raw : 'overview'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only on mount — URL writes after this are history.replaceState
+  const [tab, setTabState] = useState<ProfileTab>(initialTab)
+  const [isPending, startTransition] = useTransition()
+
+  // Back/forward button — re-read the URL when the user navigates history.
+  useEffect(() => {
+    const onPopState = () => {
+      const raw = new URLSearchParams(window.location.search).get('tab')
+      setTabState(isProfileTab(raw) ? raw : 'overview')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const setTab = useCallback((next: ProfileTab) => {
+    startTransition(() => {
+      setTabState(next)
+    })
+    // Silent URL mirror — no Next.js re-fetch. pushState (not replace) so
+    // the back button can restore the previous tab.
+    const params = new URLSearchParams(window.location.search)
+    if (next === 'overview') params.delete('tab')
+    else params.set('tab', next)
+    const query = params.toString()
+    const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
+    window.history.pushState(null, '', url)
+  }, [])
+
+  const squadMembers = useMemo(
+    () => (profile.squadPreview ? toSquadMembers(profile.squadPreview) : []),
+    [profile.squadPreview]
+  )
+
+  const calendarFixtures = useMemo<ClubUpcomingFixture[]>(
+    () =>
+      (profile.upcomingFixtures ?? []).map(f => ({
+        matchId: String(f.matchId),
+        date: f.matchDate,
+        opponentName: f.opponentName,
+        opponentCrest: f.opponentCrest,
+        competitionName: f.competitionName,
+        competitionEmblem: f.competitionEmblem,
+        isHome: f.isHome,
+      })),
+    [profile.upcomingFixtures]
+  )
+
+  // Track profile view on mount
+  useEffect(() => {
+    trackClubProfileView({
+      clubId: profile.id,
+      clubName: profile.name,
+      leagueName: profile.competition?.name || undefined,
+    })
+  }, [profile.id, profile.name, profile.competition?.name])
+
+  // Handle navigation to chat with query
+  const handleAskAbout = () => {
+    trackAskAboutClick({
+      entityType: 'club',
+      entityId: profile.id,
+      entityName: profile.name,
+    })
+    localStorage.setItem('gss-pending-query', `Tell me about ${profile.name}`)
+    router.push(`/${slug}/chat`)
+  }
+
+  return (
+    <main className="bg-shell flex-1 overflow-hidden">
+      {/* overflow-x-hidden guards against any wide child (e.g. a fixed-width
+          formation row) creating a stray horizontal scroll on mobile. Wide
+          tables manage their own internal overflow-x-auto, so they're
+          unaffected. */}
+      <div className="h-full overflow-x-hidden overflow-y-auto">
+        {/* Hero Header */}
+        <ClubHeader profile={profile} />
+
+        {/* Tab nav — three top-level views as a v2-style pill group. Sticky
+            just under the header so it stays in reach while a long Squad list
+            scrolls. */}
+        <nav
+          aria-label="Club profile sections"
+          className="sticky top-0 z-10 border-b border-zinc-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:border-zinc-800/80 dark:bg-zinc-950/85 dark:supports-[backdrop-filter]:bg-zinc-950/70"
+        >
+          <div className="mx-auto flex max-w-7xl px-4 py-2.5 sm:px-6 lg:px-8">
+            <div
+              role="tablist"
+              className="inline-flex items-center gap-1 rounded-xl bg-zinc-100 p-1.5 dark:bg-zinc-800"
+            >
+              {PROFILE_TABS.map(({ key, label }) => {
+                const selected = tab === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    data-testid="profile-tab"
+                    data-tab={key}
+                    data-selected={selected ? 'true' : 'false'}
+                    aria-selected={selected}
+                    aria-current={selected ? 'page' : undefined}
+                    onClick={() => setTab(key)}
+                    className={cn(
+                      'inline-flex items-center rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
+                      selected
+                        ? 'bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-700 hover:bg-white/70 dark:text-zinc-300 dark:hover:bg-zinc-700/60'
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </nav>
+
+        {/* Main Content. Slight opacity dip while pending so the user knows
+            their click registered while React stages the new tab. */}
+        <div
+          className={cn(
+            'mx-auto max-w-7xl px-4 py-6 transition-opacity duration-150 sm:px-6 lg:px-8',
+            isPending && 'opacity-60'
+          )}
+        >
+          {tab === 'overview' && (
+            <>
+              {/* Dashboard mission-control row — 1col mobile, 2col md, 4col xl */}
+              {(profile.squadAnalytics || profile.currentSeasonStandings) && (
+                <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {(profile.recentForm?.length || profile.currentSeasonStandings) && (
+                    <FormCard
+                      recentForm={profile.recentForm ?? null}
+                      homeAway={profile.homeAwayForm ?? null}
+                      slug={slug}
+                    />
+                  )}
+                  {profile.squadAnalytics && <AgeProfileCard analytics={profile.squadAnalytics} />}
+                  {profile.topPerformers && <TopPerformerCard performers={profile.topPerformers} />}
+                  <AvailabilityCard injuries={profile.currentInjuries ?? []} />
+                </section>
+              )}
+
+              {/* Last Match */}
+              {profile.lastMatch && (
+                <section className="mb-8">
+                  <Eyebrow className="mb-4">Last Match</Eyebrow>
+                  <LastMatchFormation match={profile.lastMatch} teamUuid={profile.uuid} />
+                </section>
+              )}
+
+              {/* Three equal-width columns on lg+: Tactical Identity, Next 5
+                  Fixtures, What we know. md collapses to two columns; mobile
+                  stacks. items-start so each card sizes to its content. */}
+              {((profile.tacticalIdentity && profile.tacticalIdentity.matches.length > 0) ||
+                profile.upcomingFixtures !== undefined ||
+                profile.sentrumActivity) && (
+                <div className="mb-8 grid grid-cols-1 items-start gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {profile.tacticalIdentity && profile.tacticalIdentity.matches.length > 0 && (
+                    <section className="min-w-0">
+                      <Eyebrow className="mb-4">Tactical Identity</Eyebrow>
+                      <TacticalIdentityCard data={profile.tacticalIdentity} />
+                    </section>
+                  )}
+
+                  {profile.upcomingFixtures !== undefined && (
+                    <section className="min-w-0">
+                      <Eyebrow className="mb-4">Next 5 fixtures</Eyebrow>
+                      <UpcomingFixturesCard fixtures={profile.upcomingFixtures} />
+                    </section>
+                  )}
+
+                  {calendarEnabled && calendarFixtures.length > 0 && (
+                    <div className="min-w-0">
+                      <AddToCalendarFixturesCard
+                        slug={slug}
+                        clubId={profile.id}
+                        fixtures={calendarFixtures}
+                        existingCalendarMatchIds={existingCalendarMatchIds}
+                      />
+                    </div>
+                  )}
+
+                  {profile.sentrumActivity && (
+                    <section className="min-w-0">
+                      <Eyebrow className="mb-4">What we know</Eyebrow>
+                      <SentrumPanel activity={profile.sentrumActivity} />
+                    </section>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === 'squad' && (
+            <>
+              {/* Squad */}
+              {profile.squadPreview && profile.squadPreview.length > 0 && (
+                <section className="mb-8">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <Eyebrow>Squad · {profile.squadPreview.length} players</Eyebrow>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCompareOpen(true)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 text-[13px] font-medium text-zinc-900 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800/60"
+                      >
+                        <Scale className="h-3.5 w-3.5" />
+                        Compare
+                      </button>
+                      <div className="flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+                        <button
+                          onClick={() => setSquadTab('list')}
+                          className={cn(
+                            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                            squadTab === 'list'
+                              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300'
+                          )}
+                        >
+                          <List className="h-3.5 w-3.5" />
+                          List
+                        </button>
+                        <button
+                          onClick={() => setSquadTab('overview')}
+                          className={cn(
+                            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                            squadTab === 'overview'
+                              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300'
+                          )}
+                        >
+                          <BarChart3 className="h-3.5 w-3.5" />
+                          Overview
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {squadTab === 'list' ? (
+                    <ClubSquad players={profile.squadPreview} clubId={profile.id} />
+                  ) : (
+                    <SquadAnalysis squad={squadMembers} />
+                  )}
+                </section>
+              )}
+
+              {/* Recent Transfers — below the squad list. Reads as
+                  "how the roster got here" context for the current squad. */}
+              {profile.recentTransfers && profile.recentTransfers.length > 0 && (
+                <section className="mb-8">
+                  <Eyebrow className="mb-4">Recent Transfers</Eyebrow>
+                  <TransfersCard transfers={profile.recentTransfers} />
+                </section>
+              )}
+            </>
+          )}
+
+          {tab === 'table' && (
+            <>
+              {profile.leagueTable && profile.leagueTable.length > 0 ? (
+                <section className="mb-8">
+                  <Eyebrow className="mb-4">League Standings</Eyebrow>
+                  <LeagueStandings
+                    standings={profile.leagueTable}
+                    highlightTeamUuid={profile.uuid}
+                  />
+                </section>
+              ) : profile.currentSeasonStandings ? (
+                <section className="mb-8">
+                  <Eyebrow className="mb-4">League Standings</Eyebrow>
+                  <ClubStats
+                    currentSeasonStandings={profile.currentSeasonStandings}
+                    previousSeasonStandings={profile.previousSeasonStandings}
+                  />
+                </section>
+              ) : (
+                <section className="mb-8 rounded-lg border border-dashed border-zinc-200 bg-white p-12 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                  No standings data available for this club.
+                </section>
+              )}
+            </>
+          )}
+
+          {tab === 'fixtures' && <FixturesResultsTab slug={slug} teamUuid={profile.uuid} />}
+
+          {/* Squad Compare Dialog (lives outside the tab condition so the
+              dialog state survives a tab switch). */}
+          <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+              <DialogHeader>
+                <DialogTitle>Compare Squads</DialogTitle>
+                <DialogDescription>Compare {profile.name} against other teams</DialogDescription>
+              </DialogHeader>
+              <SquadCompare
+                currentTeam={{
+                  id: profile.id,
+                  name: profile.name,
+                  crest: profile.crest,
+                  squad: squadMembers,
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Floating Ask About Button */}
+        <AskAboutButton label={`Ask about ${profile.name}`} onClick={handleAskAbout} />
+      </div>
+    </main>
+  )
+}

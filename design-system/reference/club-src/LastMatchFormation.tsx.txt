@@ -1,0 +1,383 @@
+'use client'
+
+import { useMemo } from 'react'
+import Image from 'next/image'
+import type { LastMatchData, MatchPlayerData } from '@/lib/types/profiles'
+import { FootballPitch } from '@/components/my-clubs/pitch-view/FootballPitch'
+import { MatchPlayerCard } from './MatchPlayerCard'
+import { EventsStrip } from '@/components/profiles/shared/EventsStrip'
+import { tacticToFormationId } from '@/lib/formations/tactic-mapping'
+import { getFormation } from '@/lib/formations'
+import { assignMatchPlayersToSlots } from '@/lib/formations/match-assignment'
+import { buildImageUrl, cn } from '@/lib/utils'
+import { ArrowRightLeft } from 'lucide-react'
+
+const POSITION_GROUP_MAP: Record<string, 'GK' | 'DEF' | 'MID' | 'FWD'> = {
+  goalkeeper: 'GK',
+  centerback: 'DEF',
+  leftback: 'DEF',
+  rightback: 'DEF',
+  libero: 'DEF',
+  defensivemidfield: 'MID',
+  centralmidfield: 'MID',
+  attackingmidfield: 'MID',
+  leftmidfield: 'MID',
+  rightmidfield: 'MID',
+  leftwing: 'FWD',
+  rightwing: 'FWD',
+  secondstriker: 'FWD',
+  centerforward: 'FWD',
+}
+
+function getPositionGroup(position: string): 'GK' | 'DEF' | 'MID' | 'FWD' {
+  return POSITION_GROUP_MAP[position.toLowerCase()] ?? 'MID'
+}
+
+const RESULT_COLORS: Record<string, string> = {
+  W: 'bg-emerald-500 text-white',
+  D: 'bg-amber-500 text-white',
+  L: 'bg-red-500 text-white',
+}
+
+// ─── Landscape pitch coordinate transform ───────────────────────────────────
+// Formation slots are defined in portrait coords:
+//   x: 0 (left) → 100 (right)
+//   y: 0 (attacking end) → 100 (own goal)
+// In landscape the team attacks left-to-right, so:
+//   landscape_x = 100 - portrait_y   (attacking end → right side)
+//   landscape_y = portrait_x         (axes swap)
+//
+// EDGE_PAD_X = horizontal padding so attacking-line cards don't clip the
+// rightmost touchline. EDGE_PAD_Y = vertical padding for cards near the
+// long-side touchlines.
+const EDGE_PAD_X = 5
+const EDGE_PAD_Y = 7
+
+function landscapeX(portraitY: number): number {
+  const flipped = 100 - portraitY
+  return EDGE_PAD_X + (flipped / 100) * (100 - 2 * EDGE_PAD_X)
+}
+
+function landscapeY(portraitX: number): number {
+  return EDGE_PAD_Y + (portraitX / 100) * (100 - 2 * EDGE_PAD_Y)
+}
+
+interface LastMatchFormationProps {
+  match: LastMatchData
+  teamUuid: string
+}
+
+export function LastMatchFormation({ match, teamUuid }: LastMatchFormationProps) {
+  const formationId = tacticToFormationId(match.tactic)
+  const formation = getFormation(formationId)
+
+  const { slotAssignments, playerMap } = useMemo(() => {
+    if (!formation) {
+      return {
+        slotAssignments: {} as Record<string, string>,
+        playerMap: new Map<string, MatchPlayerData>(),
+      }
+    }
+
+    const pMap = new Map<string, MatchPlayerData>()
+    for (const p of match.starters) {
+      pMap.set(p.playerUuid, p)
+    }
+
+    const assignments = assignMatchPlayersToSlots(
+      match.starters.map(s => ({ playerId: s.playerUuid, position: s.position })),
+      formation
+    )
+
+    return { slotAssignments: assignments, playerMap: pMap }
+  }, [match.starters, formation])
+
+  const subByShirtNumber = useMemo(() => {
+    const map = new Map<number, MatchPlayerData>()
+    for (const sub of match.substitutes) {
+      if (sub.shirtNumber != null) {
+        map.set(sub.shirtNumber, sub)
+      }
+    }
+    return map
+  }, [match.substitutes])
+
+  const matchDate = new Date(match.matchDate)
+  const formattedDate = matchDate.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+
+  const homeCrest = buildImageUrl(match.homeTeamCrest)
+  const awayCrest = buildImageUrl(match.awayTeamCrest)
+  const compEmblem = buildImageUrl(match.competitionEmblem)
+
+  const usedSubs = match.substitutes.filter(s => s.minutesPlayed > 0)
+  const unusedSubs = match.substitutes.filter(s => s.minutesPlayed === 0)
+  const hasSubEvents = match.substitutionEvents.length > 0
+  const hasAnySubs = hasSubEvents || match.substitutes.length > 0
+
+  if (!formation) {
+    return null
+  }
+
+  const hasEvents = Boolean(match.goalEvents?.length || match.cardEvents?.length)
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      {/* Match header — competition + date as a small eyebrow, then the
+          full match line (crest · team · score · team · crest · result)
+          centred and prominent. */}
+      <div className="border-b border-zinc-200 px-4 py-4 dark:border-zinc-800">
+        <div className="mb-3 flex items-center justify-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+          {compEmblem && (
+            <Image
+              src={compEmblem}
+              alt={match.competitionName}
+              width={14}
+              height={14}
+              className="h-3.5 w-3.5 object-contain"
+            />
+          )}
+          <span>{match.competitionName}</span>
+          <span aria-hidden className="text-zinc-300 dark:text-zinc-600">
+            ·
+          </span>
+          <span>{formattedDate}</span>
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+          <TeamLabel
+            crest={homeCrest}
+            name={match.homeTeamName}
+            highlighted={match.homeTeamUuid === teamUuid}
+            align="right"
+          />
+          <div className="flex items-center gap-2">
+            <span className="font-outfit flex items-baseline gap-2 text-3xl font-bold text-zinc-950 tabular-nums dark:text-zinc-100">
+              <span>{match.scoreHome}</span>
+              <span className="text-zinc-300 dark:text-zinc-600">–</span>
+              <span>{match.scoreAway}</span>
+            </span>
+            <span
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px] font-bold',
+                RESULT_COLORS[match.result]
+              )}
+            >
+              {match.result}
+            </span>
+          </div>
+          <TeamLabel
+            crest={awayCrest}
+            name={match.awayTeamName}
+            highlighted={match.awayTeamUuid === teamUuid}
+            align="left"
+          />
+        </div>
+      </div>
+
+      {/* Body: 3 columns on lg+ — pitch | subs | events. The subs and
+          events columns collapse out when there's nothing in them. */}
+      <div
+        className={cn(
+          'grid gap-0',
+          hasAnySubs && hasEvents
+            ? 'lg:grid-cols-[minmax(0,1fr)_220px_220px]'
+            : hasAnySubs
+              ? 'lg:grid-cols-[minmax(0,1fr)_240px]'
+              : hasEvents
+                ? 'lg:grid-cols-[minmax(0,1fr)_240px]'
+                : ''
+        )}
+      >
+        {/* Pitch column */}
+        <div className="flex flex-col gap-2 p-3 lg:p-4">
+          <div
+            className="relative mx-auto w-full max-w-[760px]"
+            style={{ aspectRatio: '113 / 72' }}
+          >
+            <FootballPitch theme="green" aspect="landscape" />
+
+            {/* Attack-direction arrow, top-right corner */}
+            <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 rounded-full bg-white/70 px-2 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-emerald-900 uppercase backdrop-blur-sm dark:bg-zinc-900/60 dark:text-emerald-200">
+              <span>Attack</span>
+              <span aria-hidden>→</span>
+            </div>
+
+            {formation.slots.map(slot => {
+              const playerId = slotAssignments[slot.id]
+              if (!playerId) return null
+              const player = playerMap.get(playerId)
+              if (!player) return null
+
+              return (
+                <div
+                  key={slot.id}
+                  className="absolute -translate-x-1/2 -translate-y-1/2"
+                  style={{
+                    left: `${landscapeX(slot.y)}%`,
+                    top: `${landscapeY(slot.x)}%`,
+                  }}
+                >
+                  <MatchPlayerCard player={player} group={slot.group} />
+                </div>
+              )
+            })}
+          </div>
+
+          <span className="font-mono text-[11px] font-medium tracking-[0.08em] text-zinc-500 uppercase dark:text-zinc-400">
+            {formationId}
+          </span>
+        </div>
+
+        {/* Subs column */}
+        {hasAnySubs && (
+          <div className="space-y-3 border-t border-zinc-200 p-3 lg:border-t-0 lg:border-l lg:p-4 dark:border-zinc-800">
+            {hasSubEvents ? (
+              <SubSection title={`Subs Used (${match.substitutionEvents.length})`}>
+                <div className="space-y-2">
+                  {match.substitutionEvents.map((sub, i) => {
+                    const subPlayer =
+                      sub.playerInShirtNumber != null
+                        ? subByShirtNumber.get(sub.playerInShirtNumber)
+                        : undefined
+                    return (
+                      <div key={i}>
+                        <div className="mb-0.5 flex items-center gap-1 font-mono text-[10px] text-zinc-500 tabular-nums dark:text-zinc-400">
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                            {sub.minute}&apos;
+                          </span>
+                          <ArrowRightLeft className="h-2.5 w-2.5" />
+                          <span className="truncate">
+                            off {sub.playerOutName}
+                            {sub.playerOutShirtNumber != null && (
+                              <span className="text-zinc-400 dark:text-zinc-500">
+                                {' '}
+                                ({sub.playerOutShirtNumber})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {subPlayer ? (
+                          <MatchPlayerCard
+                            player={subPlayer}
+                            group={getPositionGroup(subPlayer.position)}
+                            variant="panel"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5 rounded-md bg-zinc-100 px-1.5 py-1 dark:bg-zinc-800">
+                            <span className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
+                              {sub.playerInName}
+                            </span>
+                            {sub.playerInShirtNumber != null && (
+                              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                ({sub.playerInShirtNumber})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </SubSection>
+            ) : usedSubs.length > 0 ? (
+              <SubSection title={`Subs Used (${usedSubs.length})`}>
+                <div className="space-y-1">
+                  {usedSubs
+                    .slice()
+                    .sort((a, b) => b.minutesPlayed - a.minutesPlayed)
+                    .map(sub => (
+                      <MatchPlayerCard
+                        key={sub.playerUuid}
+                        player={sub}
+                        group={getPositionGroup(sub.position)}
+                        variant="panel"
+                      />
+                    ))}
+                </div>
+              </SubSection>
+            ) : null}
+
+            {unusedSubs.length > 0 && (
+              <SubSection title={`Bench (${unusedSubs.length})`}>
+                <div className="space-y-1">
+                  {unusedSubs.map(sub => (
+                    <MatchPlayerCard
+                      key={sub.playerUuid}
+                      player={sub}
+                      group={getPositionGroup(sub.position)}
+                      variant="panel"
+                    />
+                  ))}
+                </div>
+              </SubSection>
+            )}
+          </div>
+        )}
+
+        {/* Events column */}
+        {hasEvents && (
+          <div className="border-t border-zinc-200 p-3 lg:border-t-0 lg:border-l lg:p-4 dark:border-zinc-800">
+            <SubSection
+              title={`Match Events (${(match.goalEvents?.length ?? 0) + (match.cardEvents?.length ?? 0)})`}
+            >
+              <EventsStrip
+                goals={match.goalEvents ?? []}
+                cards={match.cardEvents ?? []}
+                homeTeamUuid={match.homeTeamUuid}
+                layout="vertical"
+              />
+            </SubSection>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TeamLabel({
+  crest,
+  name,
+  highlighted,
+  align,
+}: {
+  crest: string | null
+  name: string
+  highlighted: boolean
+  align: 'left' | 'right'
+}) {
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 items-center gap-2.5',
+        align === 'right' ? 'flex-row justify-end' : 'flex-row-reverse justify-end'
+      )}
+    >
+      {crest && (
+        <Image src={crest} alt={name} width={28} height={28} className="h-7 w-7 object-contain" />
+      )}
+      <span
+        className={cn(
+          'truncate text-base font-semibold',
+          highlighted ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'
+        )}
+      >
+        {name}
+      </span>
+    </div>
+  )
+}
+
+function SubSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="mb-2 font-mono text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase dark:text-zinc-400">
+        {title}
+      </h3>
+      {children}
+    </div>
+  )
+}

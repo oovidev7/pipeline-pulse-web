@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x150" name="Radii" subtitle="10px base · cards xl · composer 2xl" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 16px; background: var(--surface-card); }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .r { height: 64px; background: var(--surface-inset); border: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .r b { font-size: 11px; font-weight: 600; }
+  .r span { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="r" style="border-radius: var(--radius-sm);"><b>sm · 6px</b><span>badges</span></div>
+    <div class="r" style="border-radius: var(--radius-md);"><b>md · 8px</b><span>buttons, pills</span></div>
+    <div class="r" style="border-radius: var(--radius-lg);"><b>lg · 10px</b><span>chips, alerts</span></div>
+    <div class="r" style="border-radius: var(--radius-xl);"><b>xl · 12px</b><span>cards, panels</span></div>
+    <div class="r" style="border-radius: var(--radius-2xl);"><b>2xl · 16px</b><span>composer</span></div>
+    <div class="r" style="border-radius: var(--radius-full); height: 64px;"><b>full</b><span>avatars</span></div>
+  </div>
+</body>
+</html>

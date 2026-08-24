@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x190" name="Shell anatomy" subtitle="Stone wash · 12px gutters · nested rounded panels" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 0; background: var(--shell-bg); height: 190px; display: flex; }
+  .sidebar { width: 130px; margin: 12px 0 12px 12px; background: var(--surface-card); border: 1px solid var(--border-card); border-right: none; border-radius: var(--radius-xl) 0 0 var(--radius-xl); box-shadow: var(--shadow-nested); padding: 12px; }
+  .main { flex: 1; margin: 12px 12px 12px 0; background: var(--surface-card); border: 1px solid var(--border-card); border-left: none; border-radius: 0 var(--radius-xl) var(--radius-xl) 0; box-shadow: var(--shadow-nested); padding: 12px 16px; }
+  .note { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+  .tag { font-size: 10px; font-family: var(--font-mono); color: var(--text-faint); }
+</style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="tag">sidebar 256px</div>
+    <div class="note" style="margin-top: 6px;">rounded-l-xl<br>my-3 ml-3</div>
+  </div>
+  <div class="main">
+    <div class="tag">content panel</div>
+    <div class="note" style="margin-top: 6px;">rounded-r-xl · my-3 mr-3 · shadow-nested · shared seam with sidebar (border-l-0)<br><br>Chat column is centered, max-width 768px.</div>
+  </div>
+</body>
+</html>

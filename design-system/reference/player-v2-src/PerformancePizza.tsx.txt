@@ -1,0 +1,85 @@
+'use client'
+
+import { Eyebrow } from '../shared/Eyebrow'
+import { StatCard } from '../shared/StatCard'
+import { PolarBarChart, type PolarBarDataPoint } from '@/components/profiles/shared/PolarBarChart'
+
+interface PerformancePizzaProps {
+  /** "Technical · Impect" or "Physical · SkillCorner" */
+  title: string
+  /** Sub-eyebrow context — "AM/W template · 8 KPIs · 2,847 mins" */
+  subtitle?: string
+  data: PolarBarDataPoint[]
+  /** Composite (mean) percentile shown in the top-right */
+  compositePercentile: number
+  size?: number
+  colorScheme?: 'teal' | 'purple' | 'blue'
+  /** Spin the radar into place once on mount (Performance tab). */
+  spinIn?: boolean
+}
+
+/**
+ * Calendar-style wrapper around the existing PolarBarChart.
+ * Adds an Eyebrow title, composite percentile, and tier legend strip.
+ * Uses the established v2 card chrome instead of v1's gradient panel.
+ */
+export function PerformancePizza({
+  title,
+  subtitle,
+  data,
+  compositePercentile,
+  size = 340,
+  colorScheme = 'teal',
+  spinIn = false,
+}: PerformancePizzaProps) {
+  return (
+    <StatCard className="p-5">
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <Eyebrow size="sm" dot={false}>
+            {title}
+          </Eyebrow>
+          {subtitle && (
+            <div className="mt-0.5 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+              {subtitle}
+            </div>
+          )}
+        </div>
+        <div className="text-right">
+          <div className="font-outfit text-2xl leading-none font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+            P{Math.round(compositePercentile)}
+          </div>
+          <div className="mt-1 font-mono text-[9px] text-emerald-600">AVG PERCENTILE</div>
+        </div>
+      </div>
+
+      <div className="flex justify-center">
+        <PolarBarChart
+          data={data}
+          size={size}
+          colorScheme={colorScheme}
+          animated={false}
+          showLegend={false}
+          spinIn={spinIn}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-3 text-[10px]">
+        <LegendChip color="#22c55e" label="Elite ≥90" />
+        <LegendChip color="#4ade80" label="75+" />
+        <LegendChip color="#eab308" label="50+" />
+        <LegendChip color="#f97316" label="25+" />
+        <LegendChip color="#ef4444" label="Low" />
+      </div>
+    </StatCard>
+  )
+}
+
+function LegendChip({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <div className="h-2 w-2 rounded-sm" style={{ background: color }} />
+      <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
+    </div>
+  )
+}

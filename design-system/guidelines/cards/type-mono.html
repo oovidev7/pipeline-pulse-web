@@ -1,0 +1,15 @@
+<!-- @dsCard group="Type" viewport="700x130" name="Mono — Geist Mono" subtitle="SQL, code, tabular data" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 20px 24px; background: var(--surface-card); display: flex; flex-direction: column; gap: 12px; }
+</style>
+</head>
+<body>
+  <code class="snt-mono" style="font-size: 13px; color: var(--text-secondary); background: var(--surface-inset); border-radius: var(--radius-md); padding: 10px 14px; display: block;">SELECT player_name, goals, xg FROM player_stats WHERE age &lt;= 21 ORDER BY goals DESC LIMIT 10;</code>
+  <div class="snt-mono" style="font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-body);">21&nbsp;&nbsp;18.4&nbsp;&nbsp;0.62 — tabular numerals for stat columns</div>
+</body>
+</html>

@@ -1,0 +1,61 @@
+import 'server-only'
+
+import {
+  getPlayerCompetitionStats,
+  getPlayerTransferHistory,
+  getPlayerInjuries,
+  getPlayerMarketValueHistory,
+} from '@/lib/services/profile-service'
+import {
+  buildCareerTotals,
+  buildCareerClubs,
+  pickCurrentSeasonCode,
+} from '@/lib/services/player-profile-v2-data'
+import type { PlayerProfile } from '@/lib/types/profiles'
+import type { VerifiedSlug } from '@/lib/auth/tenant-context'
+import { FadeIn } from '../FadeIn'
+import { CareerTab } from './CareerTab'
+
+interface Props {
+  slug: VerifiedSlug
+  profile: PlayerProfile
+}
+
+/**
+ * Server-rendered Career tab content. Owns its own feeds — competition
+ * stats, transfer history, injuries, market-value history — so it sits in
+ * its own Suspense boundary: the persistent shell paints immediately and a
+ * Career-shaped skeleton shows while these load, rather than the page
+ * blocking on the eager `buildV2PlayerData` (which made the route's
+ * loading fallback — sized for Overview — cover the whole Career load).
+ *
+ * The `buildCareerTotals` / `buildCareerClubs` helpers read off
+ * `profile.competitionStats` + `profile.transferHistory`, so we hydrate a
+ * profile copy with the freshly-fetched feeds before passing it through.
+ */
+export async function CareerSection({ slug, profile }: Props) {
+  const playerId = profile.id
+  const [competitionStats, transferHistory, injuries, marketValueHistory] = await Promise.all([
+    getPlayerCompetitionStats(slug, playerId),
+    getPlayerTransferHistory(slug, playerId),
+    getPlayerInjuries(slug, playerId),
+    getPlayerMarketValueHistory(slug, playerId),
+  ])
+
+  const hydrated: PlayerProfile = { ...profile }
+  if (competitionStats) hydrated.competitionStats = competitionStats
+  if (transferHistory) hydrated.transferHistory = transferHistory
+
+  return (
+    <FadeIn>
+      <CareerTab
+        totals={buildCareerTotals(hydrated)}
+        clubs={buildCareerClubs(hydrated)}
+        seasonStats={hydrated.competitionStats ?? []}
+        injuries={injuries ?? []}
+        marketValueHistory={marketValueHistory ?? null}
+        currentSeasonCode={pickCurrentSeasonCode(hydrated)}
+      />
+    </FadeIn>
+  )
+}

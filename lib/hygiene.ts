@@ -18,7 +18,14 @@
 import { attioFetch, getAttioSnapshot } from "./attio";
 import { CLOSED_STAGES } from "./types";
 
-const MAX_PER_SECTION = 6;
+/**
+ * Effectively "show everything". A hygiene list is a work list — truncating it
+ * hides exactly the items someone sat down to fix. The cap exists only as a
+ * guard against a pathological workspace; at normal volume it never bites.
+ * (Contrast with the risk digest, which caps hard because it is read, not
+ * worked through.)
+ */
+const MAX_PER_SECTION = 40;
 const STATE_TAG = "PULSE_HYGIENE";
 
 /** Internal addresses — team duplicates are noise, not defects. */

@@ -1,4 +1,5 @@
 import { DealRecord, StageBenchmark } from "./types";
+import { DealVisibility } from "./visibility";
 
 /**
  * Composite "needs you today" scoring. Each factor is a plain-English reason
@@ -16,8 +17,12 @@ import { DealRecord, StageBenchmark } from "./types";
 export interface RiskFactor {
   label: string;
   weight: number;
-  /** "risk" reads red; "opportunity" (a fresh buying signal) reads accent. */
-  kind: "risk" | "opportunity";
+  /**
+   * "risk" reads red; "opportunity" (a fresh buying signal) reads accent;
+   * "unknown" is a gap in what we can see, carries no weight, and must never
+   * be presented as a finding about the deal.
+   */
+  kind: "risk" | "opportunity" | "unknown";
 }
 
 export interface ScoredDeal {
@@ -37,6 +42,11 @@ export interface RiskInputs {
   /** Weekly research: a market signal matched this club, and how old it is. */
   signalDate?: string | null;
   benchmark?: StageBenchmark | null;
+  /**
+   * What we can actually see. Absent means the caller has no visibility data
+   * and the old email-only behaviour applies.
+   */
+  visibility?: DealVisibility | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -108,15 +118,23 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
     else if (!deal.nextCall) add("no call booked", 12);
   }
 
-  // Email momentum. Gmail is the live signal but only covers the primary
-  // contact; Attio's per-person interaction log is the fallback and is what
-  // separates deals the mailbox search can't see.
+  // Momentum, measured across every channel we can see — not just email.
+  // Measuring email alone is what produced "silent 47 days" for a deal having
+  // weekly calls, so `visibility` (which folds in notes, WhatsApp and Attio's
+  // calendar sync) wins wherever it is available.
   const gmailQuiet = daysSince(inputs.lastContactDate);
   const attioQuiet = daysSince(deal.lastPersonInteraction);
-  const quietDays =
+  const emailQuiet =
     gmailQuiet === null ? attioQuiet : attioQuiet === null ? gmailQuiet : Math.min(gmailQuiet, attioQuiet);
+  const quietDays = inputs.visibility
+    ? inputs.visibility.daysSinceCapture
+    : emailQuiet;
 
-  if (quietDays === null) {
+  if (inputs.visibility?.state === "dark") {
+    // We cannot see this deal, so we cannot claim it has gone quiet. Carries no
+    // weight on purpose: it is a question for a human, not a finding.
+    add("no activity captured — needs a check", 0, "unknown");
+  } else if (quietDays === null) {
     // Nothing anywhere — only meaningful once we know someone was reachable.
     add(engaged > 0 ? "no email history" : "never contacted", 12);
   } else if (quietDays > 90) {

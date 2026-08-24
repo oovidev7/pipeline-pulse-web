@@ -22,8 +22,10 @@ const STATE_TAG = "PULSE_SCORES";
  *
  *   1 — flat weights
  *   2 — 2026-08-24, weights escalate with time (see `persisted` in ./risk)
+ *   3 — 2026-08-24, quiet measured across every visible channel rather than
+ *       email alone, and suppressed entirely on deals we cannot see
  */
-const SCALE = 2;
+const SCALE = 3;
 
 export interface ScoreState {
   run: string;

@@ -1037,6 +1037,34 @@ button.reload.confirm-go {
   color: #3c3489;
 }
 
+/*
+ * A gap in what we can see — not a finding about the deal. Deliberately
+ * neutral: rendered in the danger palette it would read as "this deal is in
+ * trouble", which is the exact false statement the visibility work removes.
+ */
+/* Visibility banner on the deal detail — states what we can see, before
+   anything derived from it. Dark reads as a question, never as an alarm. */
+.detail-block.visibility-dark {
+  border-left: 3px dashed var(--border, rgba(120, 120, 130, 0.45));
+  padding-left: 10px;
+}
+
+.detail-block.visibility-active {
+  border-left: 3px solid var(--accent, #5b4fd6);
+  padding-left: 10px;
+}
+
+.detail-block.visibility-explained {
+  border-left: 3px solid var(--border, rgba(120, 120, 130, 0.45));
+  padding-left: 10px;
+}
+
+.factor-chip.unknown {
+  background: var(--surface-2, rgba(120, 120, 130, 0.12));
+  color: var(--muted, #6b7280);
+  border: 1px dashed var(--border, rgba(120, 120, 130, 0.35));
+}
+
 .risk-score {
   font-size: 13px;
   font-weight: 500;

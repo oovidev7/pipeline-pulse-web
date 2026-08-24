@@ -23,7 +23,8 @@ type SectionKey =
   | "contactActivity"
   | "slack"
   | "tasks"
-  | "roundtable";
+  | "roundtable"
+  | "dealContext";
 
 type SectionErrors = Partial<Record<SectionKey, string>>;
 
@@ -34,6 +35,8 @@ export default function Home() {
   const [slack, setSlack] = useState<any | null>(null);
   const [tasks, setTasks] = useState<TasksApiResponse | null>(null);
   const [roundtable, setRoundtable] = useState<any | null>(null);
+  /** Per-deal visibility: what we can actually see, keyed by deal id. */
+  const [dealCtx, setDealCtx] = useState<any | null>(null);
   const [errors, setErrors] = useState<SectionErrors>({});
   const [refreshing, setRefreshing] = useState(false);
   const [filterStage, setFilterStage] = useState<string | null>(null);
@@ -81,6 +84,7 @@ export default function Home() {
         loadSection<any>("slack", `/api/slack${qs}`, setSlack),
         loadSection<TasksApiResponse>("tasks", `/api/tasks${qs}`, setTasks),
         loadSection<any>("roundtable", `/api/roundtable${qs}`, setRoundtable),
+        loadSection<any>("dealContext", `/api/deal-context${qs}`, setDealCtx),
       ]);
     },
     [loadSection]
@@ -157,6 +161,8 @@ export default function Home() {
       ),
       benchmark:
         deals?.stageBenchmarks.find((b) => b.stage === deal.stage) ?? null,
+      visibility: dealCtx?.context?.[deal.id]?.visibility ?? null,
+      lastConversation: dealCtx?.context?.[deal.id]?.lastConversation ?? null,
     };
   };
 
@@ -174,9 +180,12 @@ export default function Home() {
               overdueTaskCount: (ctx.tasks ?? []).filter((t) => t.overdue).length,
               signalDate: ctx.signal?.source_date ?? null,
               benchmark: ctx.benchmark,
+              visibility: ctx.visibility,
             });
           })
-          .filter((s) => s.score > 0)
+          // Keep zero-scored deals that still have something to say — a deal we
+          // can't see scores nothing but is precisely the one worth surfacing.
+          .filter((s) => s.score > 0 || s.factors.length > 0)
       )
     : null;
 

@@ -110,7 +110,7 @@ export default function FocusList({
                         {factors.map((f, i) => (
                           <span
                             key={i}
-                            className={`factor-chip ${f.kind === "opportunity" ? "opp" : ""}`}
+                            className={`factor-chip ${f.kind === "opportunity" ? "opp" : f.kind === "unknown" ? "unknown" : ""}`}
                           >
                             {f.label}
                           </span>

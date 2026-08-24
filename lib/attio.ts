@@ -26,21 +26,40 @@ function apiKey(): string {
   return key;
 }
 
-async function attioFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`${ATTIO_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
+/**
+ * Attio rate-limits per workspace, and the dashboard loads seven sections at
+ * once — so a burst is normal traffic here, not misuse. A 429 is retried with
+ * backoff rather than surfaced, because failing a section for a transient limit
+ * shows the user an error where a half-second wait would have succeeded.
+ */
+const RATE_LIMIT_RETRIES = 3;
+
+export async function attioFetch(path: string, init?: RequestInit) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${ATTIO_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+
+    if (res.ok) return res.json();
+
+    if (res.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 400 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+
     const text = await res.text().catch(() => "");
     throw new Error(`Attio request failed (${res.status}): ${path} ${text}`);
   }
-  return res.json();
 }
 
 /** Paginates through POST /v2/objects/{object}/records/query, fetching all records. */
@@ -129,6 +148,13 @@ function normalizeDeal(record: any): DealRecord {
     personEmails: [],
     createdAt: record?.created_at || null,
     stallNotes: getAttrString(record, "stall_notes"),
+    // Fields that existed in Attio from the start and went unread until
+    // 2026-08-24. `note` in particular carries human verdicts — Spartak
+    // Moscow's reads "one more try then move to lost" — which is exactly the
+    // judgement the dashboard should surface rather than recompute.
+    dealNote: getAttrString(record, "note"),
+    lastWhatsappTouch: getAttrDate(record, "last_whatsapp_touch"),
+    source: getAttrString(record, "source"),
     associatedCompanyId: getReferencedIds(record, "associated_company")[0] ?? null,
     companyDomain: null,
     contactsViaCompany: false,
@@ -211,6 +237,12 @@ function normalizePerson(record: any): PersonRecord {
     // Interaction attributes carry `interacted_at` rather than `value`.
     lastEmailInteraction:
       getAttrValue(record, "last_email_interaction")?.interacted_at ?? null,
+    // Attio syncs calendar independently of our Google tokens, so these are
+    // populated even for the accounts whose refresh tokens are missing.
+    lastCalendarInteraction:
+      getAttrValue(record, "last_calendar_interaction")?.interacted_at ?? null,
+    nextCalendarInteraction:
+      getAttrValue(record, "next_calendar_interaction")?.interacted_at ?? null,
     connectionStrength:
       getAttrValue(record, "strongest_connection_strength")?.option?.title ?? null,
     strongestConnectionUserId:

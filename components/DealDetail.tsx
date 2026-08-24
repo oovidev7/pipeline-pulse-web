@@ -3,6 +3,8 @@
 import { DealRecord, OpenTask, StageBenchmark } from "@/lib/types";
 import { STAGE_LABELS } from "./StageSnapshot";
 import { cleanSlackText, cleanSlackUrl } from "@/lib/slack-text";
+import type { DealVisibility } from "@/lib/visibility";
+import type { AttioNote } from "@/lib/attio-notes";
 
 export interface DealContext {
   /** Gmail: last message exchanged with this deal's first contact. */
@@ -26,6 +28,13 @@ export interface DealContext {
   brief?: { brief?: string; sources?: string[] } | null;
   /** Slack MEETING_NOTES: Granola meeting summaries for this club, via the weekly agent. */
   meetings?: { meeting_date?: string; summary?: string; attendees?: string[] }[];
+  /**
+   * What we can actually see about this deal, across every channel — not just
+   * the mailbox. Null while the context request is still in flight.
+   */
+  visibility?: DealVisibility | null;
+  /** The most recent note representing a real exchange, whatever the channel. */
+  lastConversation?: AttioNote | null;
   /** How deals historically behave in this deal's current stage. */
   benchmark?: StageBenchmark | null;
 }
@@ -73,8 +82,17 @@ export default function DealDetail({
   deal: DealRecord;
   context: DealContext;
 }) {
-  const { activity, calls = [], tasks = [], signal, brief, meetings = [], benchmark } =
-    context;
+  const {
+    activity,
+    calls = [],
+    tasks = [],
+    signal,
+    brief,
+    meetings = [],
+    benchmark,
+    visibility,
+    lastConversation,
+  } = context;
 
   const journey = deal.stageJourney;
   const totalAge = daysSince(deal.createdAt);
@@ -91,10 +109,44 @@ export default function DealDetail({
     { name: "Tasks", present: tasks.length > 0 },
     { name: "Research", present: Boolean(signal || brief) },
     { name: "Granola", present: meetings.length > 0 },
+    // Where this pipeline actually happens. Shown even when absent, because an
+    // unlit LinkedIn or WhatsApp marker is the reason a deal can look silent.
+    { name: "Notes", present: Boolean(lastConversation) },
+    { name: "LinkedIn", present: visibility?.channels.includes("linkedin") ?? false },
+    { name: "WhatsApp", present: visibility?.channels.includes("whatsapp") ?? false },
   ];
 
   return (
     <div className="deal-detail">
+      {/*
+        What we can see, stated before anything derived from it. A reader who
+        knows the deal — Danny with a WhatsApp thread open — can immediately
+        tell whether the numbers below are working from the full picture.
+      */}
+      {visibility && (
+        <div className={`detail-block visibility-${visibility.state}`}>
+          <p className="detail-heading">
+            {visibility.state === "active"
+              ? "Live"
+              : visibility.state === "explained"
+                ? "Where this stands"
+                : "We can't see this one"}
+          </p>
+          <p className="fact-value">{visibility.summary}</p>
+          {lastConversation && (
+            <p className="detail-quote">
+              <strong>{lastConversation.title}</strong>
+              {lastConversation.excerpt ? ` — ${lastConversation.excerpt}` : ""}
+              <span className="hint">
+                {" "}
+                ({lastConversation.channel},{" "}
+                {new Date(lastConversation.createdAt).toLocaleDateString("en-GB")})
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="detail-block">
         <p className="detail-heading">Journey</p>
         {journey.length === 0 ? (

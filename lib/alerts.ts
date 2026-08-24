@@ -12,6 +12,7 @@ import { rankDeals, scoreDeal, ScoredDeal } from "./risk";
 import { CLOSED_STAGES, DealRecord } from "./types";
 import { readPreviousScores, buildScoreStateMessage } from "./alert-state";
 import { diffScores } from "./alert-diff";
+import { getDealContext, DealSignals } from "./deal-context";
 
 /**
  * Score a deal must reach to appear in the morning digest.
@@ -60,6 +61,13 @@ export interface AlertDigest {
     worsened: { deal: DealRecord; score: number; from: number; factors: string[] }[];
     cleared: { deal: DealRecord; score: number; from: number }[];
   };
+  /**
+   * Deals we have no current visibility on and no recorded explanation for.
+   * Deliberately not risk-scored — we do not know these are stalled, and the
+   * dashboard's job is to ask rather than to guess. Answering the question is
+   * also how the explanation gets captured.
+   */
+  dark: { deal: DealRecord; days: number | null; channels: string[] }[];
   /** True when there was no previous run to compare against. */
   baseline: boolean;
   /** Every open deal's score, to be written back as the next baseline. */
@@ -108,6 +116,17 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     getContactActivity().catch(() => null),
   ]);
 
+  // What we can see, joined the same way the dashboard joins it. On failure the
+  // scoring silently reverts to email-only, which is worse but not wrong-headed
+  // — the digest is still worth sending.
+  const gmailByDeal = new Map(
+    (activity?.entries ?? []).map((e) => [e.dealId, e.lastContactDate ?? null])
+  );
+  const context = await getDealContext(gmailByDeal).catch((err) => {
+    console.error("[alerts] visibility unavailable, falling back to email-only", err);
+    return new Map<string, DealSignals>();
+  });
+
   const signals: any[] = slack.marketSignals?.signals ?? [];
 
   const scored = rankDeals(
@@ -129,11 +148,20 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
             tasks?.tasks.filter((t) => t.dealId === d.id && t.overdue).length ?? 0,
           signalDate: signal?.source_date ?? null,
           benchmark: deals.stageBenchmarks.find((b) => b.stage === d.stage) ?? null,
+          visibility: context.get(d.id)?.visibility ?? null,
         });
       })
   );
 
   const riskDeals = scored.filter((s) => s.score >= RISK_ALERT_THRESHOLD);
+
+  const dark = scored
+    .filter((s) => context.get(s.deal.id)?.visibility.state === "dark")
+    .map((s) => {
+      const v = context.get(s.deal.id)!.visibility;
+      return { deal: s.deal, days: v.daysSinceCapture, channels: v.channels };
+    })
+    .sort((a, b) => (b.deal.value || 0) - (a.deal.value || 0));
 
   // Compare against the previous run so the team hears about *movement*, not
   // the standing list — the same deals are stalled again tomorrow.
@@ -244,6 +272,22 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     }
   }
 
+  // Questions, not findings. Phrased as what we failed to capture so nobody
+  // reads it as "these deals are dead" — several of them are probably fine.
+  if (dark.length > 0) {
+    digestLines.push("", `*No visibility on ${dark.length} — alive or dead?*`);
+    for (const d of dark.slice(0, MAX_LISTED)) {
+      digestLines.push(
+        `• *${d.deal.name}* — ${fmtGBP(d.deal.value)}, ${d.deal.stage} · nothing captured ${
+          d.days === null ? "ever" : `in ${d.days}d`
+        } (we see: ${d.channels.length ? d.channels.join(", ") : "nothing"})`
+      );
+    }
+    if (dark.length > MAX_LISTED) {
+      digestLines.push(`…and ${dark.length - MAX_LISTED} more.`);
+    }
+  }
+
   const digestMessage = digestLines.length
     ? `:telephone_receiver: *Pipeline Pulse — morning digest*\n\n${digestLines.join("\n")}`
     : "";
@@ -265,6 +309,7 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     riskDeals,
     signals: freshSignals,
     changes,
+    dark,
     baseline,
     scores,
     signalMessage,

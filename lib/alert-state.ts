@@ -3,13 +3,27 @@
 // Slack data channel the weekly research already posts to, under its own tag:
 //
 //   PULSE_SCORES | run: 2026-08-17T07:00:00.000Z
-//   ```{ "run": "...", "scores": { "<dealId>": 61, ... } }```
+//   ```{ "run": "...", "scale": 2, "scores": { "<dealId>": 61, ... } }```
 //
 // Each run reads the newest PULSE_SCORES, diffs against it, then writes a
 // fresh one. Losing the message (channel cleared, retention) is not fatal:
 // the run simply reports no changes and re-establishes a baseline.
 
 const STATE_TAG = "PULSE_SCORES";
+
+/**
+ * Bumped whenever the scoring changes shape, so scores from before the change
+ * are never diffed against scores from after it. A rescale moves every number
+ * at once; compared naively that reads as the whole pipeline deteriorating
+ * overnight and pages the team about deals that did not move.
+ *
+ * A mismatch is treated exactly like a missing baseline: report nothing, write
+ * a fresh one, resume comparing tomorrow.
+ *
+ *   1 — flat weights
+ *   2 — 2026-08-24, weights escalate with time (see `persisted` in ./risk)
+ */
+const SCALE = 2;
 
 export interface ScoreState {
   run: string;
@@ -45,7 +59,10 @@ export async function readPreviousScores(): Promise<ScoreState | null> {
       if (!fenced) continue;
       try {
         const parsed = JSON.parse(fenced[1]);
+        // Stop at the newest state either way: an older same-scale message is
+        // not a valid baseline, it is just a staler one.
         if (parsed && typeof parsed.scores === "object") {
+          if ((parsed.scale ?? 1) !== SCALE) return null;
           return { run: parsed.run ?? "", scores: parsed.scores };
         }
       } catch {
@@ -62,6 +79,6 @@ export async function readPreviousScores(): Promise<ScoreState | null> {
 /** The message body that records this run's scores for the next comparison. */
 export function buildScoreStateMessage(scores: Record<string, number>): string {
   const run = new Date().toISOString();
-  const payload = JSON.stringify({ run, scores });
+  const payload = JSON.stringify({ run, scale: SCALE, scores });
   return `${STATE_TAG} | run: ${run}\n\`\`\`${payload}\`\`\``;
 }

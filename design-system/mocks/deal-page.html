@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FC Copenhagen — sentrum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --shell-bg:oklch(0.97 0.001 106.424);
+    --fg:oklch(0.147 0.004 49.25);
+    --zinc-200:#e4e4e7;--zinc-300:#d4d4d8;--zinc-400:#a1a1aa;
+    --zinc-500:#71717a;--zinc-600:#52525b;--zinc-700:#3f3f46;--zinc-900:#18181b;
+    --gray-100:#f3f4f6;--gray-200:#e5e7eb;
+    --emerald-500:#10b981;--emerald-600:#059669;--emerald-50:#ecfdf5;
+    --amber-600:#d97706;--amber-50:#fffbeb;
+    --destructive:oklch(0.577 0.245 27.325);
+    --brand-navy:oklch(0.216 0.015 256.71);
+    --font-sans:'Geist',ui-sans-serif,system-ui,sans-serif;
+    --font-mono:'Geist Mono',ui-monospace,Menlo,monospace;
+    --font-display:'Outfit',var(--font-sans);
+    --shadow-nested:0 1px 2px rgb(0 0 0/.04),0 4px 16px rgb(0 0 0/.04);
+    --shadow-floating:0 2px 4px rgb(0 0 0/.05),0 8px 24px rgb(0 0 0/.07);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--shell-bg);font-family:var(--font-sans);color:var(--fg);font-size:14px;
+       -webkit-font-smoothing:antialiased;padding:12px}
+  .panel{background:#fff;border-radius:12px;box-shadow:var(--shadow-nested);
+         max-width:1080px;margin:0 auto;overflow:hidden}
+
+  .back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--zinc-500);
+        text-decoration:none;padding:18px 32px 0}
+  .back:hover{color:var(--zinc-900)}
+  .back svg{width:14px;height:14px}
+
+  .head{padding:12px 32px 22px;border-bottom:1px solid var(--gray-200)}
+  .head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
+  h1{font-family:var(--font-display);font-weight:500;letter-spacing:-0.025em;font-size:30px;line-height:1.15}
+  .sub{margin-top:7px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+       font-size:13px;color:var(--zinc-500)}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;
+         padding:3px 9px;border-radius:999px;border:1px solid var(--zinc-200);color:var(--zinc-700)}
+  .badge.live{background:var(--emerald-50);border-color:#a7f3d0;color:var(--emerald-600)}
+  .badge .dot{width:5px;height:5px;border-radius:999px;background:currentColor}
+  .value{font-family:var(--font-display);font-weight:600;font-size:26px;
+         font-variant-numeric:tabular-nums;white-space:nowrap}
+  .value-cap{font-size:11px;font-family:var(--font-mono);color:var(--zinc-500);
+             text-transform:uppercase;letter-spacing:0.14em;text-align:right;margin-top:3px}
+
+  .eyebrow{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-weight:600;
+           font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:var(--zinc-500)}
+  .eyebrow .dot{width:4px;height:4px;border-radius:999px;background:var(--emerald-500);flex:none}
+
+  .cols{display:grid;grid-template-columns:1fr 320px}
+  .main{padding:24px 28px 28px;border-right:1px solid var(--gray-200)}
+  .rail{padding:24px 24px 28px;background:#fcfcfc}
+  .block{margin-bottom:26px}
+  .block:last-child{margin-bottom:0}
+
+  /* status */
+  .status{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+  .srow{display:flex;gap:9px;font-size:13.5px;line-height:1.55;color:var(--zinc-700)}
+  .srow svg{width:14px;height:14px;flex:none;margin-top:3px;color:var(--zinc-400)}
+  .srow.warn svg{color:var(--amber-600)}
+  .quote{margin-top:12px;padding:11px 14px;background:var(--gray-100);border-radius:8px;
+         font-size:13px;color:var(--zinc-600);line-height:1.6}
+  .quote b{color:var(--zinc-900);font-weight:600}
+
+  /* timeline */
+  .tl{margin-top:14px;position:relative;padding-left:20px}
+  .tl:before{content:'';position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:var(--gray-200)}
+  .ev{position:relative;padding-bottom:18px}
+  .ev:last-child{padding-bottom:0}
+  .ev:before{content:'';position:absolute;left:-20px;top:5px;width:9px;height:9px;border-radius:999px;
+             background:#fff;border:1.5px solid var(--zinc-300)}
+  .ev.call:before{border-color:var(--emerald-500);background:var(--emerald-500)}
+  .ev-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .ev-date{font-family:var(--font-mono);font-size:11px;color:var(--zinc-400);letter-spacing:0.06em}
+  .ev-title{font-size:14px;font-weight:500}
+  .ev-kind{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.14em;
+           color:var(--zinc-400)}
+  .ev-body{margin-top:5px;font-size:13px;color:var(--zinc-600);line-height:1.6}
+  .ev-who{margin-top:3px;font-size:12px;color:var(--zinc-500)}
+  .more{margin-top:12px;font-size:13px;color:var(--zinc-500)}
+
+  /* people */
+  .person{border:1px solid var(--zinc-200);border-radius:10px;padding:13px 14px;margin-top:10px;
+          transition:border-color .15s}
+  .person:hover{border-color:var(--zinc-400)}
+  .person.gap{border-color:#fcd34d;background:var(--amber-50)}
+  .p-name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .p-meta{font-size:12px;color:var(--zinc-500);margin-top:3px;line-height:1.5}
+  .p-acts{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:4px 9px;border-radius:6px;border:1px solid var(--zinc-200);
+        background:#fff;color:var(--zinc-600);cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+        text-decoration:none}
+  .chip:hover{border-color:var(--zinc-400);box-shadow:var(--shadow-floating)}
+  .chip svg{width:12px;height:12px}
+  .flag{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:0.16em;
+        color:var(--amber-600);border:1px solid #fcd34d;border-radius:4px;padding:2px 5px}
+
+  /* score */
+  .score-head{display:flex;align-items:baseline;justify-content:space-between;margin-top:12px}
+  .score-num{font-family:var(--font-display);font-weight:600;font-size:26px;font-variant-numeric:tabular-nums}
+  .score-cap{font-size:12px;color:var(--zinc-500)}
+  .factors{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+  .factor{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--zinc-700);
+          padding:5px 0;border-bottom:1px solid var(--gray-100)}
+  .factor:last-child{border-bottom:0}
+  .fw{font-family:var(--font-mono);font-size:12px;color:var(--zinc-500);font-variant-numeric:tabular-nums}
+  .fw.neg{color:var(--emerald-600)}
+
+  .acts{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+  .btn{font-size:13px;font-weight:500;padding:8px 13px;border-radius:8px;border:1px solid var(--zinc-200);
+       background:#fff;color:var(--zinc-700);cursor:pointer;transition:all .15s;
+       display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%}
+  .btn:hover{border-color:var(--zinc-400);box-shadow:var(--shadow-floating)}
+  .btn:active{transform:scale(.98)}
+  .btn.primary{background:var(--brand-navy);border-color:var(--brand-navy);color:#fff}
+  .btn.primary:hover{opacity:.88}
+  .btn svg{width:14px;height:14px}
+  .sources{margin-top:14px;display:flex;gap:5px;flex-wrap:wrap}
+  .src{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
+       padding:3px 7px;border-radius:5px;border:1px solid var(--zinc-200);color:var(--zinc-600)}
+  .src.off{color:var(--zinc-300);border-color:var(--gray-100)}
+  @media (max-width:900px){.cols{grid-template-columns:1fr}.main{border-right:0;border-bottom:1px solid var(--gray-200)}}
+</style>
+</head>
+<body>
+<div class="panel">
+
+  <a class="back" href="#"><svg data-lucide="arrow-left"></svg>Sales weekly</a>
+
+  <div class="head">
+    <div class="head-row">
+      <div>
+        <h1>FC Copenhagen</h1>
+        <div class="sub">
+          <span class="badge">Trialling</span>
+          <span class="badge live"><span class="dot"></span>Active · 4 days ago</span>
+          <span>Danny</span><span>·</span><span>Q3 2026</span>
+        </div>
+      </div>
+      <div>
+        <div class="value">£45,000</div>
+        <div class="value-cap">Deal value</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="main">
+
+      <!-- WHERE THIS STANDS -->
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span><span>Where this stands</span></div>
+        <div class="status">
+          <div class="srow"><svg data-lucide="activity"></svg><span>Seen on email, calendar and meetings. Last touch 20 August.</span></div>
+          <div class="srow"><svg data-lucide="clock"></svg><span>49 days in Trialling. Deals that advanced from here took a median of 39 — though that median is from one deal, so treat it loosely.</span></div>
+          <div class="srow warn"><svg data-lucide="file-text"></svg><span>Proposal is due and has not been sent. No next call booked.</span></div>
+        </div>
+        <div class="quote">Recorded verdict — <b>“Currently trialling with a proposal due”</b></div>
+      </div>
+
+      <!-- TIMELINE -->
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span><span>What has happened</span></div>
+        <div class="tl">
+          <div class="ev call">
+            <div class="ev-top"><span class="ev-date">20 AUG</span><span class="ev-title">Andreas x Danny</span><span class="ev-kind">Call</span></div>
+            <div class="ev-who">ahr@fck.dk</div>
+          </div>
+          <div class="ev call">
+            <div class="ev-top"><span class="ev-date">12 AUG</span><span class="ev-title">Andreas x Danny</span><span class="ev-kind">Call</span></div>
+            <div class="ev-who">ahr@fck.dk</div>
+          </div>
+          <div class="ev">
+            <div class="ev-top"><span class="ev-date">31 JUL</span><span class="ev-title">Kristjaan catch-up</span><span class="ev-kind">Meeting note</span></div>
+            <div class="ev-body">“Overall impressions of Sentrum — using only a small fraction of the system’s capability so far…”</div>
+            <div class="ev-who">mr@gingersambasports.com, ks@fck.dk · recorded from the 23 Jul call</div>
+          </div>
+          <div class="ev call">
+            <div class="ev-top"><span class="ev-date">23 JUL</span><span class="ev-title">Kristjaan catch-up</span><span class="ev-kind">Call</span></div>
+            <div class="ev-who">ks@fck.dk</div>
+          </div>
+          <div class="ev">
+            <div class="ev-top"><span class="ev-date">08 JUL</span><span class="ev-title">Calendar interaction</span><span class="ev-kind">Calendar</span></div>
+          </div>
+          <div class="ev">
+            <div class="ev-top"><span class="ev-date">06 JUL</span><span class="ev-title">Moved to Trialling</span><span class="ev-kind">Stage</span></div>
+          </div>
+        </div>
+        <p class="more">Three calls held, one written up. The 12 and 20 August calls have no notes — that is where the trial feedback went.</p>
+      </div>
+    </div>
+
+    <!-- ============================ RAIL ============================ -->
+    <div class="rail">
+
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span><span>People</span></div>
+
+        <div class="person gap">
+          <div class="p-name">Andreas <span class="flag">Not in Attio</span></div>
+          <div class="p-meta">ahr@fck.dk · 2 of the last 3 calls</div>
+          <div class="p-acts">
+            <a class="chip" href="#"><svg data-lucide="user-plus"></svg>Add to Attio</a>
+            <a class="chip" href="#"><svg data-lucide="mail"></svg>Email</a>
+          </div>
+        </div>
+
+        <div class="person">
+          <div class="p-name">Kristjaan Speakman</div>
+          <div class="p-meta">kristjaan@gmail.com · strong connection<br>Called from ks@fck.dk — club address not linked</div>
+          <div class="p-acts">
+            <a class="chip" href="#"><svg data-lucide="mail"></svg>Email</a>
+            <a class="chip" href="#"><svg data-lucide="linkedin"></svg>Find</a>
+            <a class="chip" href="#"><svg data-lucide="link"></svg>Link address</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span><span>Risk score</span></div>
+        <div class="score-head">
+          <span class="score-num">16</span>
+          <span class="score-cap">threshold 70</span>
+        </div>
+        <div class="factors">
+          <div class="factor"><span>Single-threaded</span><span class="fw">+12</span></div>
+          <div class="factor"><span>No call booked</span><span class="fw">+12</span></div>
+          <div class="factor"><span>Strong relationship</span><span class="fw neg">−8</span></div>
+        </div>
+        <p class="more" style="font-size:12.5px">Not flagged, correctly. Before meetings were read this deal was scored as silent for 47 days.</p>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span><span>Actions</span></div>
+        <div class="acts">
+          <button class="btn primary"><svg data-lucide="file-plus"></svg>Send the proposal</button>
+          <button class="btn"><svg data-lucide="calendar-plus"></svg>Book next call</button>
+          <button class="btn"><svg data-lucide="pen-line"></svg>Log what happened</button>
+          <button class="btn"><svg data-lucide="move-right"></svg>Move stage</button>
+        </div>
+        <div class="sources">
+          <span class="src">Attio</span><span class="src">Meetings</span><span class="src">Calendar</span>
+          <span class="src">Notes</span><span class="src off">Gmail</span>
+          <span class="src off">LinkedIn</span><span class="src off">WhatsApp</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

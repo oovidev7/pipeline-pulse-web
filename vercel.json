@@ -5,7 +5,6 @@
       "schedule": "0 7 * * 1-5"
     },
     {
-      "//": "Keeps the shared cache warm through the working day, so the agenda opens instantly rather than rebuilding the workspace on someone's first click. Hourly matches the cache's own revalidate window.",
       "path": "/api/warm",
       "schedule": "5 6-19 * * 1-5"
     }

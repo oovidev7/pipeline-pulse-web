@@ -13,7 +13,7 @@ import { getComputedDealsResponse, getOpenTasks } from "./attio";
 import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
 import { getDealContext } from "./deal-context";
-import { buildMetrics, WeeklyMetrics } from "./metrics";
+import { buildMetrics, WeeklyMetrics, WeekDetail } from "./metrics";
 import { rankDeals, scoreDeal, RiskFactor } from "./risk";
 import { RISK_ALERT_THRESHOLD } from "./alerts";
 import { CLOSED_STAGES, DealRecord } from "./types";
@@ -59,6 +59,8 @@ export interface Agenda {
   };
   current: WeeklyMetrics | null;
   previous: WeeklyMetrics | null;
+  /** The items behind the displayed week's counts — a number should open into its receipts. */
+  breakdown: WeekDetail | null;
   decisions: AgendaDecision[];
   queue: AgendaQueueItem[];
   queueTotal: number;
@@ -144,7 +146,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v2";
+const AGENDA_CACHE_VERSION = "v3";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -250,6 +252,9 @@ export async function buildAgenda(): Promise<Agenda> {
     },
     current: weeks[weeks.length - 1] ?? null,
     previous: weeks[weeks.length - 2] ?? null,
+    breakdown: weeks.length
+      ? metrics?.details?.[weeks[weeks.length - 1].week] ?? null
+      : null,
     decisions,
     queue: queueAll.slice(0, MAX_QUEUE),
     queueTotal: queueAll.length,

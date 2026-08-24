@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Agenda, AgendaDecision } from "@/lib/agenda";
+import type { WeekDetail } from "@/lib/metrics";
 
 const GBP = (n: number) =>
   "£" + Math.round(n || 0).toLocaleString("en-GB");
@@ -46,6 +47,8 @@ export default function Agenda() {
   const [data, setData] = useState<Agenda | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Which stat card is expanded to show the items behind its count. */
+  const [openStat, setOpenStat] = useState<string | null>(null);
   /** Decisions taken in this session, so progress is visible as you go. */
   const [settled, setSettled] = useState<Record<string, string>>({});
 
@@ -109,7 +112,7 @@ export default function Agenda() {
 
   const stats: {
     label: string;
-    key: keyof NonNullable<Agenda["current"]>;
+    key: keyof WeekDetail;
     help: string;
   }[] = [
     {
@@ -174,20 +177,61 @@ export default function Agenda() {
           </Help>
         </div>
         {data.current ? (
-          <div className="stats">
-            {stats.map(({ label, key, help }) => {
-              const d = delta(key);
-              return (
-                <div className="stat" key={key} title={help}>
-                  <div className="stat-label">{label}</div>
-                  <div className="stat-value">{data.current![key] as number}</div>
-                  <div className={`delta ${d && d > 0 ? "up" : d && d < 0 ? "down" : ""}`}>
-                    {d === null ? "—" : d === 0 ? "no change" : d > 0 ? `+${d}` : `${d}`}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <>
+            <div className="stats">
+              {stats.map(({ label, key, help }) => {
+                const d = delta(key);
+                const items = data.breakdown?.[key] ?? [];
+                const open = openStat === key;
+                return (
+                  <button
+                    type="button"
+                    className={`stat ${open ? "open" : ""}`}
+                    key={key}
+                    title={help}
+                    onClick={() => setOpenStat(open ? null : key)}
+                  >
+                    <div className="stat-label">{label}</div>
+                    <div className="stat-value">{data.current![key] as number}</div>
+                    <div className={`delta ${d && d > 0 ? "up" : d && d < 0 ? "down" : ""}`}>
+                      {d === null ? "—" : d === 0 ? "no change" : d > 0 ? `+${d}` : `${d}`}
+                    </div>
+                    {items.length > 0 && <div className="stat-open-hint">{open ? "hide" : "show"}</div>}
+                  </button>
+                );
+              })}
+            </div>
+            {/* The receipts: the actual deals, calls, and notes the count is
+                made of. A number nobody can open is just an assertion. */}
+            {openStat && (
+              <div className="stat-items">
+                {(data.breakdown?.[openStat as keyof WeekDetail] ?? []).length === 0 ? (
+                  <p className="note" style={{ margin: 0 }}>Nothing counted last week.</p>
+                ) : (
+                  (data.breakdown![openStat as keyof WeekDetail])
+                    .slice()
+                    .sort((a, b) => b.at.localeCompare(a.at))
+                    .map((item, i) => (
+                      <div className="fact" key={i}>
+                        <span className="bullet" />
+                        <span>
+                          <span className="qval" style={{ marginRight: 8 }}>
+                            {new Date(item.at).toLocaleDateString("en-GB", { weekday: "short", day: "numeric" })}
+                          </span>
+                          {item.dealId ? (
+                            <Link href={`/deal/${item.dealId}`} style={{ fontWeight: 500 }}>
+                              {item.label}
+                            </Link>
+                          ) : (
+                            item.label
+                          )}
+                        </span>
+                      </div>
+                    ))
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <p className="note">No weekly figures yet.</p>
         )}

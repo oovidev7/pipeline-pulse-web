@@ -41,8 +41,20 @@ export interface MarketMetrics {
   openValue: number;
 }
 
+/** One counted thing — so a number on screen can open into its receipts. */
+export interface MetricItem {
+  /** What to show: a deal name, a meeting title, a note title. */
+  label: string;
+  at: string;
+  dealId: string | null;
+}
+
+export type WeekDetail = Record<keyof Omit<WeeklyMetrics, "week">, MetricItem[]>;
+
 export interface MetricsResponse {
   weeks: WeeklyMetrics[];
+  /** The items behind each week's counts, keyed by week. */
+  details: Record<string, WeekDetail>;
   /**
    * Rolling window rather than weekly. At ~30 conversations a week across a
    * dozen markets, a weekly per-market number is almost entirely noise —
@@ -97,19 +109,41 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     ecosystemMeetings: 0,
   });
   const byWeek = new Map<string, Omit<WeeklyMetrics, "week">>();
-  const bump = (iso: string, key: keyof Omit<WeeklyMetrics, "week">) => {
+  const details: Record<string, WeekDetail> = {};
+  const blankDetail = (): WeekDetail => ({
+    dealsReachingDemo: [],
+    discoveryCalls: [],
+    progressionCalls: [],
+    conversations: [],
+    ecosystemMeetings: [],
+  });
+  // Every count carries its receipt: the number on screen must be able to
+  // open into the deals, calls, and notes it was made of, or it is just an
+  // assertion.
+  const bump = (
+    iso: string,
+    key: keyof Omit<WeeklyMetrics, "week">,
+    item: { label: string; dealId?: string | null }
+  ) => {
     const w = weekOf(iso);
     const row = byWeek.get(w) ?? blank();
     row[key] += 1;
     byWeek.set(w, row);
+    const detail = (details[w] ??= blankDetail());
+    detail[key].push({ label: item.label, at: iso, dealId: item.dealId ?? null });
   };
+
+  const dealName = new Map(snapshot.deals.map((d) => [d.id, d.name]));
 
   // Deals reaching demo: transitions *into* the demo stage. No deal in this
   // workspace has ever re-entered it, so this counts distinct opportunities.
-  for (const history of Object.values(snapshot.stageHistory)) {
+  for (const [dealId, history] of Object.entries(snapshot.stageHistory)) {
     for (const entry of history) {
       if (entry.stage === DEMO_STAGE && entry.activeFrom >= since) {
-        bump(entry.activeFrom, "dealsReachingDemo");
+        bump(entry.activeFrom, "dealsReachingDemo", {
+          label: dealName.get(dealId) ?? "Unknown deal",
+          dealId,
+        });
       }
     }
   }
@@ -118,9 +152,16 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     (m) => m.startsAt >= since && m.startsAt <= nowIso
   );
 
+  const companyName = new Map(snapshot.companies.map((c) => [c.id, c.name]));
   for (const m of heldMeetings) {
     if (m.kind === "ecosystem" || m.kind === "unmatched") {
-      bump(m.startsAt, "ecosystemMeetings");
+      const withWhom =
+        m.companyIds.map((c) => companyName.get(c)).find(Boolean) ??
+        m.externalEmails[0]?.split("@")[1] ??
+        null;
+      bump(m.startsAt, "ecosystemMeetings", {
+        label: `${m.title || "Meeting"}${withWhom ? ` — ${withWhom}` : ""}`,
+      });
       continue;
     }
     if (m.kind !== "client" || !m.dealId) continue;
@@ -128,13 +169,15 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     const stage = stageOn(snapshot.stageHistory[m.dealId], m.startsAt);
     // Post-sale calls are customer success, not selling; counted in neither.
     if (stage === "Won 🎉" || stage === "Lost") continue;
+    const club = (dealName.get(m.dealId) ?? "").replace(/\s+[-–]\s+.*$/, "");
     bump(
       m.startsAt,
       // Unknown stage predates history and is treated as new business, which
       // is where an untracked deal almost certainly was.
       stage === null || NEW_BUSINESS_STAGES.has(stage)
         ? "discoveryCalls"
-        : "progressionCalls"
+        : "progressionCalls",
+      { label: `${club || "Unknown club"} — ${m.title || "call"}`, dealId: m.dealId }
     );
   }
 
@@ -143,7 +186,9 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
   const conversationNotes = notes.filter(
     (n) => n.human && n.channel !== "meeting" && n.createdAt >= since
   );
-  for (const n of conversationNotes) bump(n.createdAt, "conversations");
+  for (const n of conversationNotes) {
+    bump(n.createdAt, "conversations", { label: n.title || "(untitled note)" });
+  }
 
   const weeks: WeeklyMetrics[] = [...byWeek.entries()]
     .map(([week, row]) => ({ week, ...row }))
@@ -151,6 +196,7 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
 
   return {
     weeks,
+    details,
     byMarket: buildMarkets(snapshot, heldMeetings, conversationNotes, notes),
     marketWindowDays: MARKET_WINDOW_DAYS,
     cachedAt: nowIso,

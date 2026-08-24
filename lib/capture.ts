@@ -311,55 +311,96 @@ async function processReplies(
   for (const [meetingId, ask] of Object.entries(state.asks)) {
     if (ask.done) continue;
     try {
-      const thread = await slack("conversations.replies", {
-        channel,
-        ts: ask.ts,
-        limit: 20,
-      });
-      // First message is the ask itself; bot messages carry bot_id.
-      const humanReplies = (thread.messages ?? [])
-        .slice(1)
-        .filter((m: any) => !m.bot_id && m.text?.trim());
-      if (humanReplies.length === 0) continue;
-
-      const text = humanReplies.map((m: any) => m.text.trim()).join("\n\n");
-
-      // The name fix, when the ask requested one.
-      let namedContact: string | null = null;
-      const nameMatch = text.match(/^\s*name:\s*(.+)$/im);
-      if (nameMatch && ask.unnamedEmail) {
-        namedContact = await nameContact(ask.unnamedEmail, nameMatch[1].trim());
-      }
-
-      const debrief = text.replace(/^\s*name:.*$/im, "").trim();
-      if (debrief) {
-        await attioFetch("/notes", {
-          method: "POST",
-          body: JSON.stringify({
-            data: {
-              parent_object: "deals",
-              parent_record_id: ask.dealId,
-              title: `Call debrief — ${ask.club} — ${new Date(ask.askedAt).toLocaleDateString("en-GB")}`,
-              format: "plaintext",
-              content: `${debrief}\n\n(captured from Slack #sentrum-sales)`,
-            },
-          }),
-        });
-      }
-
-      await slack("chat.postMessage", {
-        channel,
-        thread_ts: ask.ts,
-        text: `Saved to Attio${namedContact ? ` — and ${ask.unnamedEmail} is now ${namedContact}` : ""}. :white_check_mark:`,
-        unfurl_links: false,
-      });
-
-      state.asks[meetingId] = { ...ask, done: true };
-      result.replies.push({ club: ask.club, savedNote: Boolean(debrief), namedContact });
+      const settled = await settleAsk(channel, meetingId, ask, state);
+      if (settled) result.replies.push(settled);
     } catch (err: any) {
       result.errors.push(`reply ${ask.club}: ${err.message}`);
     }
   }
+}
+
+/**
+ * Reads one ask's thread and, if a human has replied, writes the reply back
+ * to Attio, applies the name fix, confirms in-thread, and marks the ask done.
+ * Shared by the hourly cron and the instant event path — both must behave
+ * identically or the same reply could be recorded two different ways.
+ */
+async function settleAsk(
+  channel: string,
+  meetingId: string,
+  ask: AskRecord,
+  state: CaptureState
+): Promise<{ club: string; savedNote: boolean; namedContact: string | null } | null> {
+  const thread = await slack("conversations.replies", {
+    channel,
+    ts: ask.ts,
+    limit: 20,
+  });
+  // First message is the ask itself; bot messages carry bot_id.
+  const humanReplies = (thread.messages ?? [])
+    .slice(1)
+    .filter((m: any) => !m.bot_id && m.text?.trim());
+  if (humanReplies.length === 0) return null;
+
+  const text = humanReplies.map((m: any) => m.text.trim()).join("\n\n");
+
+  // The name fix, when the ask requested one.
+  let namedContact: string | null = null;
+  const nameMatch = text.match(/^\s*name:\s*(.+)$/im);
+  if (nameMatch && ask.unnamedEmail) {
+    namedContact = await nameContact(ask.unnamedEmail, nameMatch[1].trim());
+  }
+
+  const debrief = text.replace(/^\s*name:.*$/im, "").trim();
+  if (debrief) {
+    await attioFetch("/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          parent_object: "deals",
+          parent_record_id: ask.dealId,
+          title: `Call debrief — ${ask.club} — ${new Date(ask.askedAt).toLocaleDateString("en-GB")}`,
+          format: "plaintext",
+          content: `${debrief}\n\n(captured from Slack #sentrum-sales)`,
+        },
+      }),
+    });
+  }
+
+  await slack("chat.postMessage", {
+    channel,
+    thread_ts: ask.ts,
+    text: `Saved to Attio${namedContact ? ` — and ${ask.unnamedEmail} is now ${namedContact}` : ""}. :white_check_mark:`,
+    unfurl_links: false,
+  });
+
+  state.asks[meetingId] = { ...ask, done: true };
+  return { club: ask.club, savedNote: Boolean(debrief), namedContact };
+}
+
+/**
+ * The instant path: Slack pushes a message event, and if it is a reply in an
+ * open ask thread, the ask is settled on the spot rather than at the next
+ * cron. Returns what happened so the event route can log it.
+ */
+export async function handleThreadReply(
+  channelId: string,
+  threadTs: string
+): Promise<{ handled: boolean; club?: string }> {
+  const channel = teamChannel();
+  if (!channel || channelId !== channel) return { handled: false };
+
+  const state = await readCaptureState();
+  const entry = Object.entries(state.asks).find(
+    ([, ask]) => ask.ts === threadTs && !ask.done
+  );
+  if (!entry) return { handled: false };
+
+  const settled = await settleAsk(channel, entry[0], entry[1], state);
+  if (!settled) return { handled: false };
+
+  await writeCaptureState(state);
+  return { handled: true, club: settled.club };
 }
 
 /** Writes a name onto the person record behind an email. Returns the name written. */

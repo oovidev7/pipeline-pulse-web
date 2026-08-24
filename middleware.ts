@@ -11,6 +11,8 @@ const PUBLIC_PATHS = [
   "/api/alerts/run",
   "/api/warm",
   "/api/capture/run",
+  // Authenticated by Slack's request signature, not the session cookie.
+  "/api/slack-events",
 ];
 
 export async function middleware(req: NextRequest) {

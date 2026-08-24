@@ -157,7 +157,7 @@ export default function Agenda() {
       <section>
         <div className="eyebrow">
           <span className="dot" />
-          <span>The week · vs last week</span>
+          <span>Last week · vs the week before</span>
           <Help>
             {stats.map((s) => (
               <p key={s.key}>

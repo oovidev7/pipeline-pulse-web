@@ -218,7 +218,14 @@ export async function buildAgenda(): Promise<Agenda> {
     })
     .sort((a, b) => (b.deal.value || 0) - (a.deal.value || 0));
 
-  const weeks = metrics?.weeks ?? [];
+  // The meeting reviews the last *complete* week. On a Monday morning the
+  // current week is hours old and every stat would read zero with an alarming
+  // negative delta — which is noise wearing the clothes of a collapse.
+  const monday = new Date();
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  const thisWeek = monday.toISOString().slice(0, 10);
+  const weeks = (metrics?.weeks ?? []).filter((w) => w.week < thisWeek);
+
   const openValue = open.reduce((t, d) => t + (d.value || 0), 0);
   const won = deals.pipelineHealth.wonCount > 0 ? valueOfWon(deals) : 0;
 

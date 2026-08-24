@@ -1,0 +1,43 @@
+import { cn } from '@/lib/utils'
+import { getPercentileColor } from './tier-colors'
+
+interface PercentileBarProps {
+  percentile: number
+  className?: string
+  /** Animate the fill growing from the left on mount (Performance tab).
+   * Pure CSS (scaleX); auto-disabled under prefers-reduced-motion. */
+  animate?: boolean
+  /** Stagger delay in ms for the fill, used to ripple a list of bars. */
+  delayMs?: number
+}
+
+/**
+ * Thin tier-colored bar. Width = clamped percentile. Color = tier hex.
+ * Pairs with metric rows in PerformanceSnapshot / TopMetricsList.
+ */
+export function PercentileBar({
+  percentile,
+  className,
+  animate = false,
+  delayMs = 0,
+}: PercentileBarProps) {
+  const clamped = Math.max(0, Math.min(100, percentile))
+  return (
+    <div
+      className={cn(
+        'h-1 w-full overflow-hidden rounded-sm bg-zinc-100 dark:bg-zinc-800',
+        className
+      )}
+    >
+      <div
+        data-testid="pct-fill"
+        className={cn('h-full rounded-sm transition-all', animate && 'animate-bar-fill')}
+        style={{
+          width: `${clamped}%`,
+          background: getPercentileColor(percentile),
+          ...(animate && delayMs ? { animationDelay: `${delayMs}ms` } : {}),
+        }}
+      />
+    </div>
+  )
+}

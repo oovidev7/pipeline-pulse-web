@@ -1,0 +1,34 @@
+<!-- @dsCard group="Brand" viewport="700x170" name="Iconography" subtitle="Lucide outlines — 2px stroke, 14–20px" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+<style>
+  body { margin: 0; padding: 20px 24px; background: var(--surface-card); display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; align-items: center; gap: 18px; color: var(--text-secondary); }
+  .row i { width: 18px; height: 18px; display: inline-flex; }
+  .note { font-size: 11px; color: var(--text-muted); }
+  .name { font-size: 9px; font-family: var(--font-mono); color: var(--text-faint); display: block; text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div><i data-lucide="message-square"></i><span class="name">chat</span></div>
+    <div><i data-lucide="square-pen"></i><span class="name">new</span></div>
+    <div><i data-lucide="layout-dashboard"></i><span class="name">board</span></div>
+    <div><i data-lucide="shield"></i><span class="name">club</span></div>
+    <div><i data-lucide="clipboard-list"></i><span class="name">scout</span></div>
+    <div><i data-lucide="crosshair"></i><span class="name">recruit</span></div>
+    <div><i data-lucide="users"></i><span class="name">squad</span></div>
+    <div><i data-lucide="list"></i><span class="name">lists</span></div>
+    <div><i data-lucide="sparkles"></i><span class="name">prompt</span></div>
+    <div><i data-lucide="send"></i><span class="name">send</span></div>
+    <div><i data-lucide="corner-down-right"></i><span class="name">follow-up</span></div>
+    <div><i data-lucide="panel-left-close"></i><span class="name">collapse</span></div>
+  </div>
+  <div class="note">Lucide only — outline style, 2px stroke, no fills. No emoji anywhere in product UI.</div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

@@ -12,20 +12,25 @@ import { rankDeals, scoreDeal, ScoredDeal } from "./risk";
 import { CLOSED_STAGES, DealRecord } from "./types";
 import { readPreviousScores, buildScoreStateMessage } from "./alert-state";
 import { diffScores } from "./alert-diff";
+import { getDealContext, DealSignals } from "./deal-context";
 
 /**
  * Score a deal must reach to appear in the morning digest.
  *
- * Raised from 50 to 60 on 2026-08-17: at 50 the digest ran to 23 deals, and
- * the top eight were near-identical (single-threaded, no call, cold, over the
- * stage median) — a daily message that long reads as backlog, not as alerts.
+ * Raised 50 → 60 on 2026-08-17: at 50 the digest ran to 23 deals, and the top
+ * eight were near-identical — a daily message that long reads as backlog.
  *
- * Scores cluster tightly around the cut (…61 ×6, 60, 59 ×5…), so the count
+ * Raised 60 → 70 on 2026-08-24, when scores began escalating with time. That
+ * change alone moved the ≥60 set from 9 deals to 16 without any deal actually
+ * getting worse, so the gate moves with the scale rather than quietly widening
+ * the list. 70 restores it to 8.
+ *
+ * Scores cluster tightly around the cut (…76 ×5, 70 ×3, 68 ×2…), so the count
  * swings by several deals for a one-point move. That is tolerable because the
  * message lists at most `MAX_LISTED` and folds the rest into a count; treat
  * this as "roughly the worst ten", not a precise gate.
  */
-export const RISK_ALERT_THRESHOLD = 60;
+export const RISK_ALERT_THRESHOLD = 70;
 
 /** Deals named individually before the rest become "…and N more". */
 const MAX_LISTED = 8;
@@ -34,6 +39,12 @@ const MAX_LISTED = 8;
  * How much a score must climb, on a deal already past the threshold, to count
  * as "getting worse" rather than normal drift. Factors are weighted in steps
  * of 8-20, so 3 catches a real new problem without firing on rounding.
+ *
+ * Since scores escalate with time (see `persisted` in ./risk), a stalling deal
+ * now drifts up ~1/week per rotting factor. 3 stays the right cut: it ignores
+ * that background creep day to day and fires when several factors tick over
+ * together or a genuinely new problem appears. These go to the data channel
+ * only — the team is interrupted for threshold crossings, not for drift.
  */
 const ESCALATION_RISE = 3;
 /** Signals older than this aren't "fresh" — they refresh each Monday anyway. */
@@ -50,15 +61,23 @@ export interface AlertDigest {
     worsened: { deal: DealRecord; score: number; from: number; factors: string[] }[];
     cleared: { deal: DealRecord; score: number; from: number }[];
   };
+  /**
+   * Deals we have no current visibility on and no recorded explanation for.
+   * Deliberately not risk-scored — we do not know these are stalled, and the
+   * dashboard's job is to ask rather than to guess. Answering the question is
+   * also how the explanation gets captured.
+   */
+  dark: { deal: DealRecord; days: number | null; channels: string[] }[];
   /** True when there was no previous run to compare against. */
   baseline: boolean;
   /** Every open deal's score, to be written back as the next baseline. */
   scores: Record<string, number>;
   /**
-   * Short, human-facing: deals that crossed into "needs action" or got
-   * materially worse since the last run. Goes to the channel the team reads,
-   * because a change is an event worth interrupting for. Empty when nothing
-   * moved — which is the normal case on a quiet day.
+   * Short, human-facing: deals that *crossed* the threshold since the last run,
+   * either way. Goes to the channel the team reads, because becoming (or
+   * ceasing to be) a problem is an event worth interrupting for; a flagged deal
+   * grinding slowly worse is not, and stays in the data channel. Empty when
+   * nothing crossed — the normal case on a quiet day.
    */
   signalMessage: string;
   /**
@@ -97,6 +116,17 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     getContactActivity().catch(() => null),
   ]);
 
+  // What we can see, joined the same way the dashboard joins it. On failure the
+  // scoring silently reverts to email-only, which is worse but not wrong-headed
+  // — the digest is still worth sending.
+  const gmailByDeal = new Map(
+    (activity?.entries ?? []).map((e) => [e.dealId, e.lastContactDate ?? null])
+  );
+  const context = await getDealContext(gmailByDeal).catch((err) => {
+    console.error("[alerts] visibility unavailable, falling back to email-only", err);
+    return new Map<string, DealSignals>();
+  });
+
   const signals: any[] = slack.marketSignals?.signals ?? [];
 
   const scored = rankDeals(
@@ -118,11 +148,20 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
             tasks?.tasks.filter((t) => t.dealId === d.id && t.overdue).length ?? 0,
           signalDate: signal?.source_date ?? null,
           benchmark: deals.stageBenchmarks.find((b) => b.stage === d.stage) ?? null,
+          visibility: context.get(d.id)?.visibility ?? null,
         });
       })
   );
 
   const riskDeals = scored.filter((s) => s.score >= RISK_ALERT_THRESHOLD);
+
+  const dark = scored
+    .filter((s) => context.get(s.deal.id)?.visibility.state === "dark")
+    .map((s) => {
+      const v = context.get(s.deal.id)!.visibility;
+      return { deal: s.deal, days: v.daysSinceCapture, channels: v.channels };
+    })
+    .sort((a, b) => (b.deal.value || 0) - (a.deal.value || 0));
 
   // Compare against the previous run so the team hears about *movement*, not
   // the standing list — the same deals are stalled again tomorrow.
@@ -208,23 +247,45 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
     return s ? `\n   ↳ _buying signal:_ ${s.signal}` : "";
   };
 
-  const changeLines: string[] = [];
-  for (const c of changes.crossed) {
-    changeLines.push(
+  // Crossings only: a deal that just became a problem, or just stopped being
+  // one. Both are events. A flagged deal drifting from 64 to 67 is not, and is
+  // reported in the data channel instead.
+  const crossedLines = changes.crossed.map(
+    (c) =>
       `• *${c.deal.name}* — ${fmtGBP(c.deal.value)}, ${c.deal.ownerName || "Unassigned"} · *now needs action* (${
         c.from === null ? `score ${c.score}` : `${c.from} → ${c.score}`
       })\n   ${c.factors.join(", ")}${withSignal(c.deal)}`
-    );
+  );
+  const clearedLine =
+    changes.cleared.length > 0
+      ? `_No longer flagged: ${changes.cleared.map((c) => c.deal.name).join(", ")}._`
+      : "";
+
+  // Drift belongs with the standing list, under its own heading so the record
+  // shows which of these deals are actively rotting rather than merely stuck.
+  if (changes.worsened.length > 0) {
+    digestLines.push("", `*Getting worse since yesterday:*`);
+    for (const w of changes.worsened) {
+      digestLines.push(
+        `• *${w.deal.name}* — ${w.from} → ${w.score} · ${w.factors.join(", ")}`
+      );
+    }
   }
-  for (const w of changes.worsened) {
-    changeLines.push(
-      `• *${w.deal.name}* — ${fmtGBP(w.deal.value)}, ${w.deal.ownerName || "Unassigned"} · getting worse (${w.from} → ${w.score})\n   ${w.factors.join(", ")}${withSignal(w.deal)}`
-    );
-  }
-  if (changes.cleared.length > 0) {
-    changeLines.push(
-      `_No longer flagged: ${changes.cleared.map((c) => c.deal.name).join(", ")}._`
-    );
+
+  // Questions, not findings. Phrased as what we failed to capture so nobody
+  // reads it as "these deals are dead" — several of them are probably fine.
+  if (dark.length > 0) {
+    digestLines.push("", `*No visibility on ${dark.length} — alive or dead?*`);
+    for (const d of dark.slice(0, MAX_LISTED)) {
+      digestLines.push(
+        `• *${d.deal.name}* — ${fmtGBP(d.deal.value)}, ${d.deal.stage} · nothing captured ${
+          d.days === null ? "ever" : `in ${d.days}d`
+        } (we see: ${d.channels.length ? d.channels.join(", ") : "nothing"})`
+      );
+    }
+    if (dark.length > MAX_LISTED) {
+      digestLines.push(`…and ${dark.length - MAX_LISTED} more.`);
+    }
   }
 
   const digestMessage = digestLines.length
@@ -233,19 +294,22 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
 
   // Nothing to say on the first run — there is no baseline to compare with,
   // and announcing every already-flagged deal as "new" would be wrong.
-  const moved = changes.crossed.length + changes.worsened.length;
+  const n = crossedLines.length;
   const signalMessage =
-    baseline || changeLines.length === 0
+    baseline || (n === 0 && !clearedLine)
       ? ""
-      : `:rotating_light: *Pipeline moved — ${
-          moved === 1 ? "1 deal needs" : `${moved} deals need`
-        } a look*\n${changeLines.join("\n")}`;
+      : n === 0
+        ? `:white_check_mark: *Pipeline Pulse* — ${clearedLine}`
+        : `:rotating_light: *Pipeline moved — ${
+            n === 1 ? "1 deal needs" : `${n} deals need`
+          } a look*\n${[...crossedLines, clearedLine].filter(Boolean).join("\n")}`;
 
   return {
     shouldPost: Boolean(digestMessage || signalMessage),
     riskDeals,
     signals: freshSignals,
     changes,
+    dark,
     baseline,
     scores,
     signalMessage,

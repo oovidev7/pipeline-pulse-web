@@ -1,0 +1,303 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import Image from 'next/image'
+import { ChevronRight } from 'lucide-react'
+import type { FormationMatch, FormationUsage, TacticalIdentity } from '@/lib/types/profiles'
+import { cn } from '@/lib/utils'
+
+interface TacticalIdentityCardProps {
+  data: TacticalIdentity
+}
+
+type CompFilter = number | 'all'
+
+interface CompetitionOption {
+  id: number
+  name: string
+  emblem: string | null
+  level: number | null
+}
+
+function resultStyles(result: 'W' | 'D' | 'L'): string {
+  if (result === 'W')
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20'
+  if (result === 'L')
+    return 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20'
+  return 'bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-600/40'
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+}
+
+function deriveCompetitions(matches: FormationMatch[]): CompetitionOption[] {
+  const seen = new Map<number, CompetitionOption>()
+  for (const m of matches) {
+    if (!seen.has(m.competitionId)) {
+      seen.set(m.competitionId, {
+        id: m.competitionId,
+        name: m.competitionName,
+        emblem: m.competitionEmblem,
+        level: m.competitionLevel,
+      })
+    }
+  }
+  // Top-tier (lowest numeric level) first; null levels last; tiebreak by name.
+  return [...seen.values()].sort((a, b) => {
+    const la = a.level ?? Number.POSITIVE_INFINITY
+    const lb = b.level ?? Number.POSITIVE_INFINITY
+    if (la !== lb) return la - lb
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function groupByFormation(matches: FormationMatch[]): FormationUsage[] {
+  const groups = new Map<string, FormationMatch[]>()
+  for (const m of matches) {
+    const list = groups.get(m.formationName) ?? []
+    list.push(m)
+    groups.set(m.formationName, list)
+  }
+  const total = matches.length
+  return [...groups.entries()]
+    .map(([formationName, ms]) => ({
+      formationName,
+      matchCount: ms.length,
+      percentage: total > 0 ? Math.round((ms.length / total) * 100) : 0,
+      matches: ms,
+    }))
+    .sort((a, b) => b.matchCount - a.matchCount)
+}
+
+function FilterChip({
+  label,
+  emblem,
+  selected,
+  onSelect,
+}: {
+  label: string
+  emblem: string | null
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="comp-filter-chip"
+      data-selected={selected ? 'true' : 'false'}
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+        selected
+          ? 'bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950'
+          : 'bg-zinc-50 text-zinc-700 ring-1 ring-zinc-200 ring-inset hover:bg-zinc-100 dark:bg-zinc-800/50 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800'
+      )}
+    >
+      {emblem ? (
+        <Image
+          src={emblem}
+          alt=""
+          width={14}
+          height={14}
+          className={cn('h-3.5 w-3.5 object-contain', selected && 'brightness-0 invert')}
+        />
+      ) : null}
+      <span className="whitespace-nowrap">{label}</span>
+    </button>
+  )
+}
+
+function MatchRow({ match, showComp }: { match: FormationMatch; showComp: boolean }) {
+  return (
+    <li
+      data-testid="formation-match-row"
+      className="grid grid-cols-[3.25rem_1.25rem_minmax(0,1fr)_1rem_1.25rem_3.25rem] items-center gap-2 py-1.5 text-xs"
+    >
+      <span className="text-right font-mono font-medium whitespace-nowrap text-zinc-500 tabular-nums dark:text-zinc-400">
+        {formatDate(match.matchDate)}
+      </span>
+      <span className="flex h-5 w-5 items-center justify-center">
+        {match.opponentCrest ? (
+          <Image
+            src={match.opponentCrest}
+            alt={match.opponentName}
+            width={20}
+            height={20}
+            className="h-5 w-5 object-contain"
+          />
+        ) : (
+          <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500">
+            {match.opponentName.slice(0, 3).toUpperCase()}
+          </span>
+        )}
+      </span>
+      <span className="truncate text-zinc-900 dark:text-zinc-100" title={match.opponentName}>
+        {match.opponentName}
+      </span>
+      <span className="flex h-4 w-4 items-center justify-center">
+        {showComp && match.competitionEmblem ? (
+          <Image
+            src={match.competitionEmblem}
+            alt={match.competitionName}
+            width={16}
+            height={16}
+            className="h-4 w-4 object-contain opacity-80"
+            title={match.competitionName}
+          />
+        ) : null}
+      </span>
+      <span className="text-center font-mono text-[10px] font-medium tracking-wider text-zinc-400 uppercase dark:text-zinc-500">
+        {match.isHome ? 'H' : 'A'}
+      </span>
+      <span
+        className={cn(
+          'inline-flex items-center justify-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums',
+          resultStyles(match.result)
+        )}
+      >
+        <span>{match.result}</span>
+        <span className="opacity-70">
+          {match.teamScore}-{match.opponentScore}
+        </span>
+      </span>
+    </li>
+  )
+}
+
+function FormationRow({ entry, showComp }: { entry: FormationUsage; showComp: boolean }) {
+  const [open, setOpen] = useState(false)
+  const hasMatches = entry.matches.length > 0
+  const id = `tactical-${entry.formationName.replace(/\s+/g, '-')}`
+
+  return (
+    <div className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800/60">
+      <button
+        type="button"
+        onClick={() => hasMatches && setOpen(o => !o)}
+        disabled={!hasMatches}
+        aria-expanded={open}
+        aria-controls={id}
+        data-testid="formation-bar"
+        className={cn(
+          'grid w-full grid-cols-[1rem_6.5rem_minmax(0,1fr)_4.25rem] items-center gap-2 py-2 text-xs transition-colors',
+          hasMatches
+            ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+            : 'cursor-default'
+        )}
+      >
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            'h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 dark:text-zinc-500',
+            open && 'rotate-90',
+            !hasMatches && 'opacity-0'
+          )}
+        />
+        <span
+          className="truncate text-left font-medium text-zinc-900 tabular-nums dark:text-zinc-100"
+          title={entry.formationName}
+        >
+          {entry.formationName}
+        </span>
+        <span className="h-3 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+          <span
+            className={cn(
+              'block h-full transition-colors',
+              open ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-500'
+            )}
+            style={{ width: `${entry.percentage}%` }}
+          />
+        </span>
+        <span className="text-right font-mono text-zinc-600 tabular-nums dark:text-zinc-400">
+          {entry.percentage}% <span className="opacity-60">({entry.matchCount})</span>
+        </span>
+      </button>
+
+      {open && hasMatches && (
+        <div id={id} className="animate-in fade-in relative pt-1 pr-1 pb-2 pl-7 duration-200">
+          <ul className="max-h-64 divide-y divide-zinc-50 overflow-y-auto pr-1 dark:divide-zinc-800/40">
+            {entry.matches.map(m => (
+              <MatchRow key={m.matchId} match={m} showComp={showComp} />
+            ))}
+          </ul>
+          {entry.matches.length > 6 && (
+            <div className="pointer-events-none absolute right-1 bottom-2 left-7 h-6 bg-gradient-to-t from-white to-transparent dark:from-zinc-900" />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TacticalIdentityCard({ data }: TacticalIdentityCardProps) {
+  const competitions = useMemo(() => deriveCompetitions(data.matches), [data.matches])
+
+  // Default filter: primary competition if available in the data, else first
+  // available, else 'all'. Falling through prevents a dead filter when the
+  // team didn't play in the configured primary comp this season.
+  const initialFilter: CompFilter = useMemo(() => {
+    const primary = data.primaryCompetitionId
+    if (primary != null && competitions.some(c => c.id === primary)) return primary
+    return competitions[0]?.id ?? 'all'
+  }, [data.primaryCompetitionId, competitions])
+
+  const [filter, setFilter] = useState<CompFilter>(initialFilter)
+
+  const filteredMatches = useMemo(
+    () => (filter === 'all' ? data.matches : data.matches.filter(m => m.competitionId === filter)),
+    [data.matches, filter]
+  )
+
+  const formations = useMemo(() => groupByFormation(filteredMatches), [filteredMatches])
+  const showComp = filter === 'all'
+  const selectedCompName =
+    filter === 'all' ? null : (competitions.find(c => c.id === filter)?.name ?? null)
+
+  if (data.matches.length === 0) {
+    return (
+      <section className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        No data
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      {competitions.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800/60">
+          {competitions.map(c => (
+            <FilterChip
+              key={c.id}
+              label={c.name}
+              emblem={c.emblem}
+              selected={filter === c.id}
+              onSelect={() => setFilter(c.id)}
+            />
+          ))}
+          <FilterChip
+            label="All"
+            emblem={null}
+            selected={filter === 'all'}
+            onSelect={() => setFilter('all')}
+          />
+        </div>
+      )}
+
+      <div className="px-4 py-1">
+        {formations.length === 0 ? (
+          <p className="py-4 text-center text-xs text-zinc-500 dark:text-zinc-400">
+            No matches in {selectedCompName ?? 'this competition'}
+          </p>
+        ) : (
+          formations.map(entry => (
+            <FormationRow key={entry.formationName} entry={entry} showComp={showComp} />
+          ))
+        )}
+      </div>
+    </section>
+  )
+}

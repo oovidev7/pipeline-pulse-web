@@ -32,6 +32,16 @@ export interface DealRecord {
   createdAt: string | null;
   /** Free-text `stall_notes` field on the Attio deal — the only field this app writes. */
   stallNotes: string | null;
+  /**
+   * Attio's own `note` field: a human's standing verdict on the deal, e.g.
+   * "one more try then move to lost". Distinct from `stallNotes`, which this
+   * app writes. Read-only here — it is someone's judgement, not our output.
+   */
+  dealNote: string | null;
+  /** Set by the Attio–WhatsApp connector. Null until that connector is live. */
+  lastWhatsappTouch: string | null;
+  /** How the deal originated: LinkedIn, Email, Referral, Inbound, Event. */
+  source: string | null;
   associatedCompanyId: string | null;
   /** The linked company's email domain — the Gmail fallback when no people are linked. */
   companyDomain: string | null;
@@ -88,6 +98,13 @@ export interface PersonRecord {
   /** Attio's relationship strength: "Very weak" … "Very strong", or null. */
   connectionStrength: string | null;
   strongestConnectionUserId: string | null;
+  /**
+   * Attio's own calendar sync, independent of this app's Google credentials —
+   * so meetings are visible even for the accounts whose refresh tokens are
+   * missing.
+   */
+  lastCalendarInteraction: string | null;
+  nextCalendarInteraction: string | null;
 }
 
 export interface OpenTask {

@@ -1,0 +1,174 @@
+/* ============================================================================
+   Sentrum color tokens
+   Source: app/globals.css in Ginger-Samba-Sports/sentrum (Tailwind v4 + shadcn,
+   baseColor "stone"). Semantic tokens are verbatim oklch values from the app.
+   Gray/slate scales are the Tailwind v4 palettes the app composes with.
+   ========================================================================== */
+
+:root {
+  /* --- Brand ----------------------------------------------------------- */
+  --brand-navy: oklch(0.216 0.015 256.71); /* ≈ #1e293b, slate-800 */
+  --brand-navy-light: oklch(0.294 0.017 256.71);
+  --brand-navy-dark: oklch(0.147 0.012 256.71);
+
+  /* --- App shell -------------------------------------------------------- */
+  --shell-bg: oklch(0.97 0.001 106.424); /* warm stone wash behind panels */
+
+  /* --- Semantic surfaces & text (shadcn, stone-tinted) ------------------ */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.25);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.147 0.004 49.25);
+  --primary: oklch(0.216 0.006 56.043);
+  --primary-foreground: oklch(0.985 0.001 106.423);
+  --secondary: oklch(0.97 0.001 106.424);
+  --secondary-foreground: oklch(0.216 0.006 56.043);
+  --muted: oklch(0.97 0.001 106.424);
+  --muted-foreground: oklch(0.553 0.013 58.071);
+  --accent: oklch(0.97 0.001 106.424);
+  --accent-foreground: oklch(0.216 0.006 56.043);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.923 0.003 48.717);
+  --input: oklch(0.923 0.003 48.717);
+  --ring: oklch(0.709 0.01 56.259);
+
+  /* --- Sidebar ----------------------------------------------------------- */
+  --sidebar: oklch(0.985 0.001 106.423);
+  --sidebar-foreground: oklch(0.147 0.004 49.25);
+  --sidebar-primary: oklch(0.216 0.006 56.043);
+  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-accent: oklch(0.97 0.001 106.424);
+  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
+  --sidebar-border: oklch(0.923 0.003 48.717);
+  --sidebar-ring: oklch(0.709 0.01 56.259);
+
+  /* --- Charts ------------------------------------------------------------ */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  /* --- Gray (Tailwind gray — chrome, text, borders) ---------------------- */
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --gray-950: #030712;
+
+  /* --- Slate (Tailwind slate — brand accents, send button, logo) --------- */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+  --slate-950: #020617;
+
+  /* --- Zinc (Tailwind zinc — v2 player profile neutrals) ------------------ */
+  --zinc-50: #fafafa;
+  --zinc-100: #f4f4f5;
+  --zinc-200: #e4e4e7;
+  --zinc-300: #d4d4d8;
+  --zinc-400: #a1a1aa;
+  --zinc-500: #71717a;
+  --zinc-600: #52525b;
+  --zinc-700: #3f3f46;
+  --zinc-800: #27272a;
+  --zinc-900: #18181b;
+  --zinc-950: #09090b;
+
+  /* --- Emerald (v2 profile accent: eyebrow dot, highlights, market value) -- */
+  --emerald-50: #ecfdf5;
+  --emerald-400: #4ade80;
+  --emerald-500: #10b981;
+  --emerald-600: #059669;
+  --emerald-700: #047857;
+
+  /* --- Percentile tiers (v2 performance bars) ------------------------------ */
+  --tier-elite: #22c55e;
+  --tier-above-avg: #4ade80;
+  --tier-average: #eab308;
+  --tier-below-avg: #f97316;
+  --tier-low: #ef4444;
+
+  /* --- Pitch (position visualisation) -------------------------------------- */
+  --pitch-field: #1e3a5f;
+
+  /* --- Convenience aliases ----------------------------------------------- */
+  --text-body: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+  --text-faint: var(--gray-400);
+  --surface-page: var(--shell-bg);
+  --surface-card: var(--background);
+  --surface-inset: var(--gray-100);
+  --border-card: rgb(229 231 235 / 0.8); /* gray-200/80 — the panel border */
+  --accent-action: var(--slate-600); /* send button, key CTAs */
+  --accent-action-hover: var(--slate-700);
+}
+
+.dark {
+  --brand-navy: oklch(0.216 0.015 256.71);
+  --brand-navy-light: oklch(0.294 0.017 256.71);
+  --brand-navy-dark: oklch(0.147 0.012 256.71);
+
+  --shell-bg: oklch(0.145 0.004 49.25);
+
+  --background: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.985 0.001 106.423);
+  --card: oklch(0.216 0.006 56.043);
+  --card-foreground: oklch(0.985 0.001 106.423);
+  --popover: oklch(0.216 0.006 56.043);
+  --popover-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(0.923 0.003 48.717);
+  --primary-foreground: oklch(0.216 0.006 56.043);
+  --secondary: oklch(0.268 0.007 34.298);
+  --secondary-foreground: oklch(0.985 0.001 106.423);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259);
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.423);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+
+  --sidebar: oklch(0.216 0.006 56.043);
+  --sidebar-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-accent: oklch(0.268 0.007 34.298);
+  --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.553 0.013 58.071);
+
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  --text-body: var(--gray-100);
+  --text-secondary: var(--gray-300);
+  --text-muted: var(--gray-400);
+  --text-faint: var(--gray-500);
+  --surface-page: var(--shell-bg);
+  --surface-card: oklch(0.216 0.006 56.043);
+  --surface-inset: rgb(31 41 55 / 0.8); /* gray-800/80 */
+  --border-card: rgb(55 65 81 / 0.6); /* gray-700/60 */
+  --accent-action: var(--slate-500);
+  --accent-action-hover: var(--slate-600);
+}

@@ -1,0 +1,64 @@
+/* ============================================================================
+   Sentrum typography tokens
+   Body/UI: Geist Sans · Code & data: Geist Mono · Display/brand: Outfit
+   ========================================================================== */
+
+:root {
+  --font-sans:
+    'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-display: 'Outfit', var(--font-sans); /* wordmark, page greetings, h1 */
+
+  /* Type scale (app uses Tailwind defaults; key in-product sizes below) */
+  --text-xs: 0.75rem; /* 12px — metadata, table headers */
+  --text-micro: 11px; /* uppercase micro-labels ("FOR YOU, THIS WEEK") */
+  --text-sm: 0.875rem; /* 14px — default UI size: buttons, nav, inputs */
+  --text-chat: 15px; /* chat message body */
+  --text-base: 1rem; /* 16px — composer text on desktop */
+  --text-lg: 1.125rem;
+  --text-brand: 17px; /* sidebar tenant name */
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem; /* welcome heading, mobile */
+  --text-4xl: 2.25rem; /* welcome heading, desktop */
+
+  --leading-snug: 1.375;
+  --leading-relaxed: 1.625; /* chat prose */
+
+  --tracking-tight: -0.025em; /* display headings & wordmark */
+  --tracking-wider: 0.05em; /* uppercase micro-labels */
+  --tracking-attribution: 0.14em; /* "POWERED BY" footer */
+
+  --weight-regular: 400;
+  --weight-medium: 500; /* headings, buttons, nav active */
+  --weight-semibold: 600; /* card titles, micro-labels, tenant name */
+  --weight-bold: 700;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Display heading — Outfit medium, tight tracking (e.g. "What's new, Anna?") */
+.snt-display {
+  font-family: var(--font-display);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-body);
+}
+
+/* Uppercase micro-label — section eyebrows ("KEEP EXPLORING") */
+.snt-microlabel {
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.snt-mono {
+  font-family: var(--font-mono);
+}

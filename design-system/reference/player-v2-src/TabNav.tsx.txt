@@ -1,0 +1,89 @@
+'use client'
+
+import Link from 'next/link'
+import { cn } from '@/lib/utils'
+
+export interface ProfileTab<T extends string = string> {
+  id: T
+  label: string
+}
+
+interface TabNavProps<T extends string> {
+  tabs: readonly ProfileTab<T>[]
+  active: T
+  /** Client-state mode: called when a tab is clicked. */
+  onChange?: (id: T) => void
+  /**
+   * URL-routing mode: when provided, each tab renders as a `<Link>`
+   * pointing to `${basePath}` for the overview tab or
+   * `${basePath}/${tab.id}` otherwise. Useful when each tab's content
+   * is a separate server-rendered route and we want bookmarkable URLs.
+   */
+  basePath?: string
+  /** Overview tab id — special-cased so its URL is `basePath` (no suffix). */
+  overviewTabId?: T
+  className?: string
+}
+
+/**
+ * Primary 5-tab pill nav for the v2 player profile.
+ * Matches Calendar feature's ViewPicker visual style.
+ */
+export function TabNav<T extends string>({
+  tabs,
+  active,
+  onChange,
+  basePath,
+  overviewTabId,
+  className,
+}: TabNavProps<T>) {
+  return (
+    <div
+      role="tablist"
+      className={cn(
+        'inline-flex items-center gap-1 rounded-xl bg-zinc-100 p-1.5 dark:bg-zinc-800',
+        className
+      )}
+    >
+      {tabs.map(tab => {
+        const isActive = tab.id === active
+        const classes = cn(
+          'inline-flex items-center rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
+          isActive
+            ? 'bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950'
+            : 'text-zinc-700 hover:bg-white/70 dark:text-zinc-300 dark:hover:bg-zinc-700/60'
+        )
+
+        if (basePath) {
+          const isOverview = overviewTabId !== undefined && tab.id === overviewTabId
+          const href = isOverview ? basePath : `${basePath}/${tab.id}`
+          return (
+            <Link
+              key={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              href={href}
+              className={classes}
+              prefetch
+            >
+              {tab.label}
+            </Link>
+          )
+        }
+
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={isActive}
+            type="button"
+            onClick={() => onChange?.(tab.id)}
+            className={classes}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}

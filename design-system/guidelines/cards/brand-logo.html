@@ -1,0 +1,28 @@
+<!-- @dsCard group="Brand" viewport="700x150" name="Logo asset" subtitle="assets/sentrum-icon.svg — currentColor mark" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; height: 150px; }
+  .cell { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; }
+  .cell span { font-size: 10px; font-family: var(--font-mono); color: var(--text-faint); }
+  img { height: 36px; }
+</style>
+</head>
+<body>
+  <div class="cell" style="background: var(--surface-card); color: var(--slate-900);">
+    <img src="../../assets/sentrum-icon.svg" alt="Sentrum mark">
+    <span>on white</span>
+  </div>
+  <div class="cell" style="background: var(--shell-bg);">
+    <img src="../../assets/sentrum-icon.svg" alt="Sentrum mark">
+    <span>on shell</span>
+  </div>
+  <div class="cell" style="background: var(--slate-900);">
+    <img src="../../assets/sentrum-icon.svg" alt="Sentrum mark" style="filter: invert(1);">
+    <span style="color: var(--slate-400);">inverted on navy</span>
+  </div>
+</body>
+</html>

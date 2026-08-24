@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Dark mode" subtitle="Class-based .dark theme — full token remap" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .half { padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--shell-bg); }
+  .panel { background: var(--surface-card); border: 1px solid var(--border-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-nested); padding: 10px 12px; }
+  .panel b { font-size: 13px; font-weight: 600; color: var(--text-body); display: block; }
+  .panel span { font-size: 11px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="half">
+    <div class="panel"><b>Light</b><span>default — stone shell, white panels</span></div>
+    <span class="snt-microlabel">:root</span>
+  </div>
+  <div class="half dark">
+    <div class="panel"><b>Dark</b><span>storageKey "sentrum-theme" · system default</span></div>
+    <span class="snt-microlabel">.dark</span>
+  </div>
+</body>
+</html>

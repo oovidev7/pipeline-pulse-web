@@ -1,0 +1,31 @@
+/* ============================================================================
+   Sentrum elevation — the "nested container" shadow system
+   Three tiers: nested (panels in the shell) → elevated (composer, modals) →
+   floating (hover/focus emphasis). Verbatim from app/globals.css.
+   ========================================================================== */
+
+:root {
+  --shadow-nested: 0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 8px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.04), 0 8px 16px rgba(0, 0, 0, 0.06);
+  --shadow-floating: 0 4px 6px rgba(0, 0, 0, 0.05), 0 12px 24px rgba(0, 0, 0, 0.08);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05); /* shadcn shadow-sm on cards/chips */
+}
+
+.dark {
+  --shadow-nested: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.15);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.2), 0 8px 16px rgba(0, 0, 0, 0.2);
+  --shadow-floating: 0 4px 6px rgba(0, 0, 0, 0.3), 0 12px 24px rgba(0, 0, 0, 0.25);
+}
+
+.shadow-nested {
+  box-shadow: var(--shadow-nested);
+}
+.shadow-elevated {
+  box-shadow: var(--shadow-elevated);
+}
+.shadow-floating {
+  box-shadow: var(--shadow-floating);
+}
+.bg-shell {
+  background-color: var(--shell-bg);
+}

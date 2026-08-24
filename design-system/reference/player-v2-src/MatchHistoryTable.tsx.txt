@@ -1,0 +1,290 @@
+'use client'
+
+import Image from 'next/image'
+import { Eyebrow } from '../shared/Eyebrow'
+import { StatCard } from '../shared/StatCard'
+import { getPositionAbbr } from '@/lib/data-explorer/position-catalog'
+
+export interface MatchRow {
+  matchId: string
+  date: string // ISO
+  opponentName: string
+  opponentCrest: string | null
+  /** Canonical leaf position the player started this match in (e.g.
+   *  `centre_back`). Null when the source has no position. */
+  position?: string | null
+  competitionName: string
+  /** Crest / image for the competition (e.g. UCL trophy). */
+  competitionCrest?: string | null
+  isHome: boolean
+  minutes: number
+  /** Raw goals in the match. Null when the data source doesn't expose it. */
+  goals: number | null
+  /** Raw assists in the match. Null when the data source doesn't expose it. */
+  assists: number | null
+  /** Successful dribbles in match */
+  dribbles?: number | null
+  xgPlusXa?: number | null
+  topSpeed?: number | null
+  sprints?: number | null
+  /** Total distance covered in match, in metres */
+  totalDistance?: number | null
+}
+
+export type MatchHistoryMode = 'combined' | 'technical' | 'physical'
+
+interface MatchHistoryTableProps {
+  matches: MatchRow[]
+  title?: string
+  onViewAll?: () => void
+  /**
+   * Which metric columns to render. Combined shows everything;
+   * technical drops physical stats; physical drops technical stats.
+   * Date / Opponent / Comp / Min are constant.
+   */
+  mode?: MatchHistoryMode
+}
+
+interface ColumnConfig {
+  /** Right-aligned numeric columns we render to the right of Min */
+  technical: boolean
+  physical: boolean
+}
+
+const MODE_COLUMNS: Record<MatchHistoryMode, ColumnConfig> = {
+  combined: { technical: true, physical: true },
+  technical: { technical: true, physical: false },
+  physical: { technical: false, physical: true },
+}
+
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+function formatShortDate(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`
+}
+
+function formatNumber(n: number | null | undefined, decimals: number = 0): string {
+  if (n == null) return '—'
+  // Normalize -0 (and negative numbers that round to 0 at the requested
+  // precision) so we don't show a stray sign on a zero value.
+  const fixed = n.toFixed(decimals)
+  if (Number(fixed) === 0) return Math.abs(0).toFixed(decimals)
+  return fixed
+}
+
+/**
+ * Match-by-match table for the Performance tab.
+ * Columns: Date · Opponent · Comp · Min · G+A · Drib · xG+xA · Speed · Sprints
+ */
+export function MatchHistoryTable({
+  matches,
+  title = 'Match-by-match · last 8 played',
+  onViewAll,
+  mode = 'combined',
+}: MatchHistoryTableProps) {
+  if (matches.length === 0) return null
+  const cols = MODE_COLUMNS[mode]
+  // Grid template — fixed left columns, then conditional right columns.
+  // Min width grows/shrinks with the rendered columns so the card doesn't
+  // overflow with extra dead space on the narrower modes. The Comp
+  // column is wider (130px) than before to accommodate the crest + name.
+  const technicalCols = cols.technical ? ' 60px 60px 70px' : ''
+  const physicalCols = cols.physical ? ' 70px 70px 70px' : ''
+  const gridTemplate = `80px 1fr 130px 50px${technicalCols}${physicalCols}`
+  const minWidth = 80 + 200 + 130 + 50 + (cols.technical ? 190 : 0) + (cols.physical ? 210 : 0)
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <Eyebrow>{title}</Eyebrow>
+        {onViewAll && (
+          <button
+            type="button"
+            onClick={onViewAll}
+            className="font-mono text-[10px] tracking-[0.18em] text-zinc-500 uppercase hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            View all matches →
+          </button>
+        )}
+      </div>
+      <StatCard className="overflow-x-auto">
+        <div
+          className="grid items-center gap-3 border-b border-zinc-200 bg-zinc-50/60 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50"
+          style={{ minWidth, gridTemplateColumns: gridTemplate }}
+        >
+          <HeaderCell>Date</HeaderCell>
+          <HeaderCell>Opponent</HeaderCell>
+          <HeaderCell>Comp</HeaderCell>
+          <HeaderCell align="right">Min</HeaderCell>
+          {cols.technical && (
+            <>
+              <HeaderCell align="right">G+A</HeaderCell>
+              <HeaderCell align="right">Drib</HeaderCell>
+              <HeaderCell align="right">xG+xA</HeaderCell>
+            </>
+          )}
+          {cols.physical && (
+            <>
+              <HeaderCell align="right">Speed</HeaderCell>
+              <HeaderCell align="right">Sprints</HeaderCell>
+              <HeaderCell align="right">Dist</HeaderCell>
+            </>
+          )}
+        </div>
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50" style={{ minWidth }}>
+          {matches.map(m => (
+            <MatchRowDisplay
+              key={m.matchId}
+              match={m}
+              cols={cols}
+              gridTemplate={gridTemplate}
+              minWidth={minWidth}
+            />
+          ))}
+        </div>
+      </StatCard>
+    </div>
+  )
+}
+
+function HeaderCell({
+  children,
+  align = 'left',
+}: {
+  children: React.ReactNode
+  align?: 'left' | 'right'
+}) {
+  return (
+    <div
+      className={`font-mono text-[9px] font-semibold tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400 ${
+        align === 'right' ? 'text-right' : ''
+      }`}
+    >
+      {children}
+    </div>
+  )
+}
+
+function MatchRowDisplay({
+  match,
+  cols,
+  gridTemplate,
+  minWidth,
+}: {
+  match: MatchRow
+  cols: ColumnConfig
+  gridTemplate: string
+  minWidth: number
+}) {
+  const hasGA = match.goals != null && match.assists != null
+  const gPlusA = hasGA ? (match.goals ?? 0) + (match.assists ?? 0) : 0
+  const standout = (hasGA && gPlusA >= 2) || (match.xgPlusXa ?? 0) >= 0.5
+  return (
+    <div
+      className="grid items-center gap-3 px-4 py-2.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50"
+      style={{ minWidth, gridTemplateColumns: gridTemplate }}
+    >
+      <div className="font-mono text-xs text-zinc-700 tabular-nums dark:text-zinc-300">
+        {formatShortDate(match.date)}
+      </div>
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        {match.opponentCrest && (
+          <Image
+            src={match.opponentCrest}
+            alt=""
+            width={16}
+            height={16}
+            className="h-4 w-4 shrink-0 object-contain"
+            unoptimized
+          />
+        )}
+        <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
+          {match.opponentName}
+        </span>
+        <span className="shrink-0 rounded-sm bg-zinc-100 px-1 font-mono text-[9px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          {match.isHome ? 'H' : 'A'}
+        </span>
+        {match.position && (
+          <span
+            title={match.position}
+            className="shrink-0 rounded-sm bg-teal-50 px-1 font-mono text-[9px] font-semibold text-teal-700 dark:bg-teal-950/40 dark:text-teal-300"
+          >
+            {getPositionAbbr(match.position) ?? match.position}
+          </span>
+        )}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">
+        {match.competitionCrest && (
+          <Image
+            src={match.competitionCrest}
+            alt=""
+            width={14}
+            height={14}
+            className="h-3.5 w-3.5 shrink-0 object-contain"
+            unoptimized
+          />
+        )}
+        <span className="truncate">{match.competitionName}</span>
+      </div>
+      <div className="text-right font-mono text-sm text-zinc-700 tabular-nums dark:text-zinc-300">
+        {match.minutes}
+      </div>
+      {cols.technical && (
+        <>
+          <div
+            className={`text-right font-mono text-sm tabular-nums ${
+              standout ? 'font-semibold text-emerald-600' : 'text-zinc-700 dark:text-zinc-300'
+            }`}
+          >
+            {hasGA ? `${match.goals}+${match.assists}` : '—'}
+          </div>
+          <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+            {/* Dribble Value (PXT) — tiny per-90 number, often well
+                below 1.0. Two decimals matches the xG+xA column and
+                preserves the signal for low but non-zero values. */}
+            {formatNumber(match.dribbles, 2)}
+          </div>
+          <div
+            className={`text-right font-mono text-sm tabular-nums ${
+              (match.xgPlusXa ?? 0) >= 0.5
+                ? 'font-semibold text-emerald-600'
+                : 'text-zinc-900 dark:text-zinc-100'
+            }`}
+          >
+            {formatNumber(match.xgPlusXa, 2)}
+          </div>
+        </>
+      )}
+      {cols.physical && (
+        <>
+          <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+            {formatNumber(match.topSpeed, 1)}
+          </div>
+          <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+            {formatNumber(match.sprints)}
+          </div>
+          <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+            {/* Render distance in km — totalDistance is metres so the raw
+                number is unreadably long (10k+). 9.6 km is far easier to
+                scan than 9,634. */}
+            {match.totalDistance != null ? `${(match.totalDistance / 1000).toFixed(1)}` : '—'}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

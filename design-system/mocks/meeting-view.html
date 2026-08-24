@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales weekly — sentrum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --shell-bg:oklch(0.97 0.001 106.424);
+    --card:#fff;
+    --fg:oklch(0.147 0.004 49.25);
+    --muted-fg:oklch(0.553 0.013 58.071);
+    --zinc-200:#e4e4e7; --zinc-300:#d4d4d8; --zinc-400:#a1a1aa;
+    --zinc-500:#71717a; --zinc-600:#52525b; --zinc-700:#3f3f46; --zinc-900:#18181b;
+    --gray-100:#f3f4f6; --gray-200:#e5e7eb; --gray-500:#6b7280;
+    --emerald-500:#10b981; --emerald-600:#059669;
+    --destructive:oklch(0.577 0.245 27.325);
+    --brand-navy:oklch(0.216 0.015 256.71);
+    --font-sans:'Geist',ui-sans-serif,system-ui,sans-serif;
+    --font-mono:'Geist Mono',ui-monospace,Menlo,monospace;
+    --font-display:'Outfit',var(--font-sans);
+    --shadow-nested:0 1px 2px rgb(0 0 0/.04),0 4px 16px rgb(0 0 0/.04);
+    --shadow-floating:0 2px 4px rgb(0 0 0/.05),0 8px 24px rgb(0 0 0/.07);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--shell-bg);font-family:var(--font-sans);color:var(--fg);
+       font-size:14px;-webkit-font-smoothing:antialiased;padding:12px}
+  .panel{background:var(--card);border-radius:12px;box-shadow:var(--shadow-nested);
+         max-width:1080px;margin:0 auto;overflow:hidden}
+
+  /* ---- header ------------------------------------------------------- */
+  .head{padding:26px 32px 20px;border-bottom:1px solid var(--gray-200)}
+  .head-top{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+  h1{font-family:var(--font-display);font-weight:500;letter-spacing:-0.025em;font-size:28px}
+  .head-meta{font-family:var(--font-mono);font-size:11px;color:var(--zinc-500);
+             text-transform:uppercase;letter-spacing:0.14em}
+  .progress{margin-top:18px;height:3px;background:var(--gray-100);border-radius:999px;overflow:hidden}
+  .progress span{display:block;height:100%;width:36%;background:var(--zinc-900);border-radius:999px}
+  .progress-label{margin-top:8px;font-family:var(--font-mono);font-size:11px;
+                  color:var(--zinc-500);letter-spacing:0.1em}
+
+  /* ---- eyebrow ------------------------------------------------------ */
+  .eyebrow{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);
+           font-weight:600;font-size:10px;letter-spacing:0.22em;text-transform:uppercase;
+           color:var(--zinc-500)}
+  .eyebrow .dot{width:4px;height:4px;border-radius:999px;background:var(--emerald-500);flex:none}
+
+  section{padding:26px 32px;border-bottom:1px solid var(--gray-200)}
+  section:last-child{border-bottom:0}
+
+  /* ---- numbers ------------------------------------------------------ */
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:16px}
+  .stat{border:1px solid var(--zinc-200);border-radius:10px;padding:14px 14px 12px;
+        transition:border-color .15s}
+  .stat:hover{border-color:var(--zinc-400)}
+  .stat-label{font-size:12px;color:var(--zinc-500);line-height:1.3;min-height:31px}
+  .stat-value{font-family:var(--font-display);font-weight:600;font-size:30px;
+              font-variant-numeric:tabular-nums;line-height:1.1;margin-top:8px}
+  .delta{font-family:var(--font-mono);font-size:11px;margin-top:4px;color:var(--zinc-500)}
+  .delta.up{color:var(--emerald-600)}
+  .delta.down{color:var(--destructive)}
+  .note{margin-top:14px;font-size:13px;color:var(--zinc-600);line-height:1.6;max-width:78ch}
+
+  /* ---- decisions ---------------------------------------------------- */
+  .item{border:1px solid var(--zinc-200);border-radius:10px;padding:18px 20px;margin-top:10px;
+        transition:border-color .15s,box-shadow .15s}
+  .item:hover{border-color:var(--zinc-400)}
+  .item.done{background:#fbfbfb;border-color:var(--gray-200)}
+  .item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+  .item-idx{font-family:var(--font-mono);font-size:11px;color:var(--zinc-400);
+            letter-spacing:0.1em;margin-bottom:6px}
+  .item-title{font-size:16px;font-weight:600;letter-spacing:-0.01em}
+  .item-sub{font-size:13px;color:var(--zinc-500);margin-top:3px}
+  .item-value{font-family:var(--font-display);font-weight:600;font-size:19px;
+              font-variant-numeric:tabular-nums;white-space:nowrap}
+  .facts{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+  .fact{display:flex;gap:9px;font-size:13.5px;line-height:1.55;color:var(--zinc-700)}
+  .fact svg{width:14px;height:14px;flex:none;margin-top:3px;color:var(--zinc-400)}
+  .quote{margin-top:12px;padding:11px 14px;background:var(--gray-100);border-radius:8px;
+         font-size:13px;color:var(--zinc-600);line-height:1.6}
+  .quote b{color:var(--zinc-900);font-weight:600}
+  .tension{border-left:2px solid var(--destructive);background:#fef7f7;
+           padding:11px 14px;border-radius:0 8px 8px 0;margin-top:12px;
+           font-size:13px;line-height:1.6;color:var(--zinc-700)}
+
+  .actions{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{font-family:var(--font-sans);font-size:13px;font-weight:500;padding:7px 13px;
+       border-radius:8px;border:1px solid var(--zinc-200);background:#fff;color:var(--zinc-700);
+       cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--zinc-400);box-shadow:var(--shadow-floating)}
+  .btn:active{transform:scale(.98)}
+  .btn.primary{background:var(--brand-navy);border-color:var(--brand-navy);color:#fff}
+  .btn.primary:hover{opacity:.88}
+  .btn svg{width:14px;height:14px}
+  .decided{display:inline-flex;align-items:center;gap:7px;font-size:13px;
+           color:var(--emerald-600);font-weight:500}
+  .decided svg{width:15px;height:15px}
+
+  /* ---- queue -------------------------------------------------------- */
+  .queue{margin-top:14px;border:1px solid var(--zinc-200);border-radius:10px;overflow:hidden}
+  .qrow{display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;
+        padding:11px 16px;border-bottom:1px solid var(--gray-200);font-size:13.5px}
+  .qrow:last-child{border-bottom:0}
+  .qrow:hover{background:#fbfbfb}
+  .qname{font-weight:500}
+  .qmeta{font-size:12px;color:var(--zinc-500);margin-top:1px}
+  .qval{font-family:var(--font-mono);font-size:12.5px;color:var(--zinc-600);
+        font-variant-numeric:tabular-nums}
+  .qbtns{display:flex;gap:6px}
+  .qbtn{font-size:12px;padding:4px 9px;border-radius:6px;border:1px solid var(--zinc-200);
+        background:#fff;color:var(--zinc-600);cursor:pointer}
+  .qbtn:hover{border-color:var(--zinc-400)}
+
+  .foot{padding:22px 32px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .foot-text{font-size:13px;color:var(--zinc-500)}
+  .wordmark{font-family:var(--font-display);font-weight:500;letter-spacing:-0.02em;
+            font-size:13px;color:var(--zinc-400)}
+  @media (max-width:880px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="panel">
+
+  <div class="head">
+    <div class="head-top">
+      <h1>Sales weekly</h1>
+      <div class="head-meta">Mon 24 Aug 2026</div>
+    </div>
+    <div class="progress"><span></span></div>
+    <div class="progress-label">4 of 11 decided · about 12 minutes left</div>
+  </div>
+
+  <!-- ============================ NUMBERS ============================ -->
+  <section>
+    <div class="eyebrow"><span class="dot"></span><span>The week · vs last week</span></div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Deals reaching demo</div>
+        <div class="stat-value">1</div>
+        <div class="delta">no change</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Discovery calls</div>
+        <div class="stat-value">1</div>
+        <div class="delta down">−1</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Progression calls</div>
+        <div class="stat-value">4</div>
+        <div class="delta up">+2</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Conversations</div>
+        <div class="stat-value">13</div>
+        <div class="delta up">+10</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Ecosystem meetings</div>
+        <div class="stat-value">10</div>
+        <div class="delta down">−6</div>
+      </div>
+    </div>
+    <p class="note">One deal reached demo; progression calls doubled on Copenhagen and Bristol City trial
+      syncs. Over the window period 16 clubs took calls and European call volume ran ahead of spring —
+      20 against 11. So clubs are meeting. What has slowed is new opportunities entering the pipeline,
+      which is a different problem to clubs being unavailable.</p>
+  </section>
+
+  <!-- =========================== DECISIONS =========================== -->
+  <section>
+    <div class="eyebrow"><span class="dot"></span><span>Decisions · 3 need a call today</span></div>
+
+    <!-- item 5 -->
+    <div class="item">
+      <div class="item-head">
+        <div>
+          <div class="item-idx">5 of 11</div>
+          <div class="item-title">Spartak Moscow</div>
+          <div class="item-sub">Qualified · Danny · quiet 104 days</div>
+        </div>
+        <div class="item-value">£50,000</div>
+      </div>
+      <div class="facts">
+        <div class="fact"><svg data-lucide="calendar-x"></svg><span>Last contact 12 May. No call booked, no open task.</span></div>
+        <div class="fact"><svg data-lucide="users"></svg><span>One contact reached, connection very weak.</span></div>
+        <div class="fact"><svg data-lucide="hammer"></svg><span>Building with a third party — nothing delivered in four months.</span></div>
+      </div>
+      <div class="quote">Recorded verdict — <b>“one more try then move to lost”</b></div>
+      <div class="tension">
+        That verdict predates the trial programme. While their build goes nowhere and you are in feedback
+        mode, a free parallel trial costs little and gives them something to compare against. Worth
+        deciding today rather than letting the note stand.
+      </div>
+      <div class="actions">
+        <button class="btn primary"><svg data-lucide="send"></svg>Offer the trial</button>
+        <button class="btn">Still live</button>
+        <button class="btn">Park till Sept</button>
+        <button class="btn">Mark dead</button>
+      </div>
+    </div>
+
+    <!-- item 6 -->
+    <div class="item">
+      <div class="item-head">
+        <div>
+          <div class="item-idx">6 of 11</div>
+          <div class="item-title">FC Copenhagen</div>
+          <div class="item-sub">Trialling · Danny · active, last touched 4 days ago</div>
+        </div>
+        <div class="item-value">£45,000</div>
+      </div>
+      <div class="facts">
+        <div class="fact"><svg data-lucide="phone"></svg><span>Two trial calls this month — 12 and 20 August, both with Andreas.</span></div>
+        <div class="fact"><svg data-lucide="clock"></svg><span>47 days in Trialling. Median to advance is 39 days.</span></div>
+        <div class="fact"><svg data-lucide="file-text"></svg><span>Proposal is due and not yet sent.</span></div>
+      </div>
+      <div class="quote">Recorded verdict — <b>“Currently trialling with a proposal due”</b></div>
+      <div class="actions">
+        <button class="btn primary"><svg data-lucide="file-plus"></svg>Send the proposal</button>
+        <button class="btn">Still live</button>
+        <button class="btn">Needs another sync</button>
+      </div>
+    </div>
+
+    <!-- decided -->
+    <div class="item done">
+      <div class="item-head">
+        <div>
+          <div class="item-idx">4 of 11 · decided</div>
+          <div class="item-title">Aston Villa</div>
+          <div class="item-sub">Prospecting · Ogi · nothing captured in 187 days</div>
+        </div>
+        <div class="item-value">£60,000</div>
+      </div>
+      <div class="actions">
+        <span class="decided"><svg data-lucide="check-circle-2"></svg>Parked until 8 September — Danny to restart the cycle</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= QUEUE ============================= -->
+  <section>
+    <div class="eyebrow"><span class="dot"></span><span>No visibility · alive or dead?</span></div>
+    <p class="note" style="margin-top:10px">Twelve deals where nothing has been captured on any channel and no
+      note explains why. These are questions, not findings — several are probably fine. One line each and
+      they stop coming back.</p>
+    <div class="queue">
+      <div class="qrow">
+        <div><div class="qname">Middlesbrough FC</div><div class="qmeta">Prospecting · sees email only</div></div>
+        <div class="qval">221d · £45,000</div>
+        <div class="qbtns"><button class="qbtn">Live</button><button class="qbtn">Park</button><button class="qbtn">Dead</button></div>
+      </div>
+      <div class="qrow">
+        <div><div class="qname">Al Wasl</div><div class="qmeta">Prospecting · email, calendar, WhatsApp</div></div>
+        <div class="qval">135d · £45,000</div>
+        <div class="qbtns"><button class="qbtn">Live</button><button class="qbtn">Park</button><button class="qbtn">Dead</button></div>
+      </div>
+      <div class="qrow">
+        <div><div class="qname">Blackburn Rovers</div><div class="qmeta">Qualified · email, calendar, WhatsApp</div></div>
+        <div class="qval">37d · £39,000</div>
+        <div class="qbtns"><button class="qbtn">Live</button><button class="qbtn">Park</button><button class="qbtn">Dead</button></div>
+      </div>
+      <div class="qrow">
+        <div><div class="qname">Colorado Rapids</div><div class="qmeta">Prospecting · nothing captured, ever</div></div>
+        <div class="qval">never · £30,000</div>
+        <div class="qbtns"><button class="qbtn">Live</button><button class="qbtn">Park</button><button class="qbtn">Dead</button></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <div class="foot-text">Decisions write straight back to Attio. Nothing to update afterwards.</div>
+    <div class="wordmark">powered by sentrum</div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

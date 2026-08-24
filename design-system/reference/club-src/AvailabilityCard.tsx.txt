@@ -1,0 +1,163 @@
+'use client'
+
+import Image from 'next/image'
+import Link from 'next/link'
+import { User, Check } from 'lucide-react'
+import type { CurrentInjury } from '@/lib/types/profiles'
+import { useTenantLink } from '@/lib/context/tenant-context'
+import { Eyebrow } from '@/components/profiles/player-v2/shared/Eyebrow'
+import { cn } from '@/lib/utils'
+
+interface AvailabilityCardProps {
+  injuries: CurrentInjury[]
+}
+
+// Sort: known-return ascending (soonest back first), then unknown-return last
+function sortByReturn(a: CurrentInjury, b: CurrentInjury): number {
+  if (a.daysOut == null && b.daysOut == null) return 0
+  if (a.daysOut == null) return 1
+  if (b.daysOut == null) return -1
+  return a.daysOut - b.daysOut
+}
+
+function returnLabel(injury: CurrentInjury): {
+  text: string
+  tone: 'soon' | 'mid' | 'long' | 'unknown'
+} {
+  if (injury.daysOut != null && injury.daysOut > 0) {
+    const tone = injury.daysOut <= 7 ? 'soon' : injury.daysOut <= 30 ? 'mid' : 'long'
+    if (injury.daysOut < 90) return { text: `back in ${injury.daysOut}d`, tone }
+    const weeks = Math.round(injury.daysOut / 7)
+    return { text: `back in ${weeks}w`, tone }
+  }
+  if (injury.expectedReturn) {
+    return { text: `back ${injury.expectedReturn}`, tone: 'mid' }
+  }
+  return { text: 'out indef.', tone: 'unknown' }
+}
+
+const TONE_CLASS: Record<'soon' | 'mid' | 'long' | 'unknown', string> = {
+  soon: 'text-emerald-600 dark:text-emerald-400',
+  mid: 'text-amber-600 dark:text-amber-400',
+  long: 'text-red-600 dark:text-red-400',
+  unknown: 'text-zinc-500 dark:text-zinc-500',
+}
+
+export function AvailabilityCard({ injuries }: AvailabilityCardProps) {
+  const count = injuries.length
+  const sorted = [...injuries].sort(sortByReturn)
+  const tenantLink = useTenantLink()
+
+  return (
+    <section className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white p-4 transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      <header className="mb-3 flex items-baseline justify-between">
+        <Eyebrow>Availability</Eyebrow>
+        <span
+          className={cn(
+            'font-mono text-[9px] font-semibold tracking-[0.18em] uppercase tabular-nums',
+            count === 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : count >= 5
+                ? 'text-red-600 dark:text-red-400'
+                : count >= 3
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-zinc-500 dark:text-zinc-400'
+          )}
+        >
+          {count === 0 ? 'All fit' : `${count} out`}
+        </span>
+      </header>
+
+      {count === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-2">
+          <div className="relative flex h-14 w-14 items-center justify-center">
+            <span className="absolute inset-0 rounded-full bg-emerald-500/8 dark:bg-emerald-400/10" />
+            <span className="absolute inset-2 rounded-full bg-emerald-500/15 dark:bg-emerald-400/20" />
+            <Check
+              aria-hidden="true"
+              className="relative h-5 w-5 stroke-[2.5] text-emerald-600 dark:text-emerald-400"
+            />
+          </div>
+          <div className="text-center">
+            <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              Full squad available
+            </div>
+            <div className="mt-0.5 font-mono text-[9px] font-medium tracking-[0.12em] text-zinc-400 uppercase dark:text-zinc-500">
+              No active injuries
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="relative flex-1">
+          <ul className="-mx-1.5 -mr-1 max-h-72 space-y-0.5 overflow-y-auto pr-1">
+            {sorted.map(injury => (
+              <li key={String(injury.playerUuid)}>
+                {injury.playerUuid ? (
+                  <Link
+                    href={tenantLink(`/player/${injury.playerUuid}`)}
+                    className="group block rounded-md px-1.5 py-1.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                  >
+                    <InjuryRow injury={injury} />
+                  </Link>
+                ) : (
+                  // Defensive: type guarantees playerUuid is present, but if
+                  // dirty data slips through we'd rather render a static row
+                  // than a /player/undefined link.
+                  <div className="block rounded-md px-1.5 py-1.5">
+                    <InjuryRow injury={injury} />
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-white to-transparent dark:from-zinc-900" />
+        </div>
+      )}
+    </section>
+  )
+}
+
+function InjuryRow({ injury }: { injury: CurrentInjury }) {
+  const { text, tone } = returnLabel(injury)
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        {injury.photoUrl ? (
+          <Image
+            src={injury.photoUrl}
+            alt={injury.playerName}
+            fill
+            className="object-cover"
+            sizes="36px"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <User className="h-4 w-4 text-zinc-400" />
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate text-sm font-medium text-zinc-900 transition-colors group-hover:text-emerald-700 dark:text-zinc-100 dark:group-hover:text-emerald-400"
+          title={injury.playerName}
+        >
+          {injury.playerName}
+        </div>
+        <div
+          className="truncate text-[11px] text-zinc-500 dark:text-zinc-400"
+          title={injury.injuryType}
+        >
+          {injury.injuryType}
+        </div>
+      </div>
+      <span
+        className={cn(
+          'flex-shrink-0 font-mono text-[11px] font-medium tabular-nums',
+          TONE_CLASS[tone]
+        )}
+      >
+        {text}
+      </span>
+    </div>
+  )
+}

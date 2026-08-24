@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Brand" subtitle="Sentrum navy + slate action accents" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body { margin: 0; padding: 16px; background: var(--surface-card); }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .sw { border-radius: var(--radius-md); height: 72px; display: flex; flex-direction: column; justify-content: flex-end; padding: 8px; color: #fff; }
+  .sw b { font-size: 11px; font-weight: 600; }
+  .sw span { font-size: 10px; opacity: 0.7; font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="sw" style="background: var(--brand-navy-dark);"><b>navy-dark</b><span>oklch .147</span></div>
+    <div class="sw" style="background: var(--brand-navy);"><b>navy</b><span>#1e293b</span></div>
+    <div class="sw" style="background: var(--brand-navy-light);"><b>navy-light</b><span>oklch .294</span></div>
+    <div class="sw" style="background: var(--slate-600);"><b>action</b><span>slate-600</span></div>
+    <div class="sw" style="background: var(--slate-700);"><b>action-hover</b><span>slate-700</span></div>
+    <div class="sw" style="background: var(--slate-900);"><b>logo ink</b><span>slate-900</span></div>
+  </div>
+</body>
+</html>

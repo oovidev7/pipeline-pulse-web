@@ -1,0 +1,211 @@
+'use client'
+
+import Image from 'next/image'
+import Link from 'next/link'
+import { Shield } from 'lucide-react'
+import type { LeagueStandingsEntry } from '@/lib/types/profiles'
+import type { Uuid } from '@/lib/types/uuid'
+import { useEntityLinks } from '@/lib/links'
+
+interface LeagueStandingsProps {
+  standings: LeagueStandingsEntry[]
+  highlightTeamUuid?: Uuid
+}
+
+// Position color coding based on typical European league structure
+function getPositionStyle(position: number, totalTeams: number): string {
+  // Champions League spots (typically top 4)
+  if (position <= 4) {
+    return 'bg-sky-500'
+  }
+  // Europa League spots (typically 5-6)
+  if (position <= 6) {
+    return 'bg-amber-500'
+  }
+  // Conference League (typically 7)
+  if (position === 7) {
+    return 'bg-emerald-500'
+  }
+  // Relegation zone (typically bottom 3)
+  if (position > totalTeams - 3) {
+    return 'bg-red-500'
+  }
+  return 'bg-transparent'
+}
+
+export function LeagueStandings({ standings, highlightTeamUuid }: LeagueStandingsProps) {
+  const links = useEntityLinks()
+  const totalTeams = standings.length
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed">
+          <thead>
+            <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50">
+              <th className="w-8 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:w-10 sm:px-3 dark:text-zinc-400">
+                #
+              </th>
+              <th className="px-2 py-3 text-left font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:px-3 dark:text-zinc-400">
+                Team
+              </th>
+              <th className="w-10 px-1 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:w-12 sm:px-2 dark:text-zinc-400">
+                P
+              </th>
+              <th className="hidden w-12 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:table-cell dark:text-zinc-400">
+                W
+              </th>
+              <th className="hidden w-12 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:table-cell dark:text-zinc-400">
+                D
+              </th>
+              <th className="hidden w-12 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:table-cell dark:text-zinc-400">
+                L
+              </th>
+              <th className="hidden w-14 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase md:table-cell dark:text-zinc-400">
+                GF
+              </th>
+              <th className="hidden w-14 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase md:table-cell dark:text-zinc-400">
+                GA
+              </th>
+              <th className="hidden w-14 px-2 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:table-cell dark:text-zinc-400">
+                GD
+              </th>
+              <th className="w-12 px-1 py-3 text-center font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:w-14 sm:px-2 dark:text-zinc-400">
+                Pts
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {standings.map(team => {
+              const isHighlighted = highlightTeamUuid != null && team.teamUuid === highlightTeamUuid
+              return (
+                <tr
+                  key={team.teamUuid}
+                  className={
+                    isHighlighted
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30'
+                      : 'transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                  }
+                >
+                  {/* Position with color indicator */}
+                  <td className="px-2 py-2.5 text-center sm:px-3">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <div
+                        className={`h-5 w-1 rounded-full ${getPositionStyle(team.position, totalTeams)}`}
+                      />
+                      <span className="text-sm font-medium text-zinc-700 tabular-nums dark:text-zinc-300">
+                        {team.position}
+                      </span>
+                    </div>
+                  </td>
+
+                  {/* Team name with crest */}
+                  <td className="px-2 py-2.5 sm:px-3">
+                    <Link
+                      href={links.club(team.teamUuid)}
+                      className="flex items-center gap-2 transition-colors hover:text-emerald-700 sm:gap-2.5 dark:hover:text-emerald-400"
+                    >
+                      <div className="relative h-6 w-6 flex-shrink-0 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
+                        {team.crest ? (
+                          <Image
+                            src={team.crest}
+                            alt=""
+                            fill
+                            className="object-contain p-0.5"
+                            sizes="24px"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Shield className="h-3 w-3 text-zinc-400" />
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        className={`truncate text-sm text-zinc-900 dark:text-zinc-100 ${isHighlighted ? 'font-bold' : 'font-medium'}`}
+                      >
+                        {team.teamName}
+                      </span>
+                    </Link>
+                  </td>
+
+                  {/* Played */}
+                  <td className="px-1 py-2.5 text-center text-sm text-zinc-700 tabular-nums sm:px-2 dark:text-zinc-300">
+                    {team.played}
+                  </td>
+
+                  {/* Won */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm text-zinc-700 tabular-nums sm:table-cell dark:text-zinc-300">
+                    {team.won}
+                  </td>
+
+                  {/* Drawn */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm text-zinc-700 tabular-nums sm:table-cell dark:text-zinc-300">
+                    {team.drawn}
+                  </td>
+
+                  {/* Lost */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm text-zinc-700 tabular-nums sm:table-cell dark:text-zinc-300">
+                    {team.lost}
+                  </td>
+
+                  {/* Goals For */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm text-zinc-500 tabular-nums md:table-cell dark:text-zinc-400">
+                    {team.goalsFor}
+                  </td>
+
+                  {/* Goals Against */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm text-zinc-500 tabular-nums md:table-cell dark:text-zinc-400">
+                    {team.goalsAgainst}
+                  </td>
+
+                  {/* Goal Difference */}
+                  <td className="hidden px-2 py-2.5 text-center text-sm tabular-nums sm:table-cell">
+                    <span
+                      className={
+                        team.goalDifference > 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : team.goalDifference < 0
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-zinc-500 dark:text-zinc-400'
+                      }
+                    >
+                      {team.goalDifference > 0 ? '+' : ''}
+                      {team.goalDifference}
+                    </span>
+                  </td>
+
+                  {/* Points */}
+                  <td className="px-1 py-2.5 text-center sm:px-2">
+                    <span className="font-outfit text-sm font-bold text-zinc-900 tabular-nums dark:text-zinc-100">
+                      {team.points}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-1 rounded-full bg-sky-500" />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Champions League</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-1 rounded-full bg-amber-500" />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Europa League</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-1 rounded-full bg-emerald-500" />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Conference League</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-1 rounded-full bg-red-500" />
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">Relegation</span>
+        </div>
+      </div>
+    </div>
+  )
+}

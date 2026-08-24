@@ -1,0 +1,162 @@
+'use client'
+
+import type {
+  PlayerProfile,
+  PositionHeatmapData,
+  MarketValueHistoryData,
+} from '@/lib/types/profiles'
+import type { CrossReportSynthesis } from '@/lib/types/scouting-synthesis'
+import type { PlayerUpcomingFixture } from '@/components/profiles/player/UpcomingFixturesCard'
+import { ScoutingVerdictCard } from '../overview/ScoutingVerdictCard'
+import { RecentInternal, type RecentNote, type RecentClip } from '../overview/RecentInternal'
+import { SeasonQuickStats, type QuickStat } from '../overview/SeasonQuickStats'
+import { PerformanceSnapshot, type SnapshotMetric } from '../overview/PerformanceSnapshot'
+import { SquadContextPreview, type LeaderboardCard } from '../overview/SquadContextPreview'
+import { PositionHeatmapLandscape } from '../overview/PositionHeatmapLandscape'
+import { MarketValueChartV2 } from '../overview/MarketValueChartV2'
+import { UpcomingFixtures } from '../overview/UpcomingFixtures'
+
+interface OverviewTabProps {
+  profile: PlayerProfile
+  synthesis: CrossReportSynthesis | null
+  notes: RecentNote[]
+  totalNoteCount: number
+  clips: RecentClip[]
+  totalClipCount: number
+  seasonContextLabel: string
+  quickStats: QuickStat[]
+  technicalMetrics: SnapshotMetric[]
+  physicalMetrics: SnapshotMetric[]
+  technicalContext?: string
+  physicalContext?: string
+  squadContextLabel: string
+  leaderboards: LeaderboardCard[]
+  positionData: PositionHeatmapData | null
+  positionTotalMinutes?: number
+  positionTotalMatches?: number
+  marketValueHistory: MarketValueHistoryData | null
+  upcomingFixtures: PlayerUpcomingFixture[]
+  existingCalendarMatchIds?: string[]
+  /** Navigate to Performance tab */
+  onFullPerformance?: () => void
+  /** Navigate to Compare tab */
+  onFullComparison?: () => void
+  /** Navigate to Scouting tab */
+  onViewScouting?: () => void
+  onWriteReport?: () => void
+  onWriteNote?: () => void
+  onUploadClip?: () => void
+  onChangeSeason?: () => void
+  onAddFixtureToCalendar?: (fixture: PlayerUpcomingFixture) => void
+}
+
+/**
+ * Composes the Overview tab sections in the order specified by the
+ * design spec. Sections render in this order:
+ *
+ *   1. Scouting verdict card (AI-synthesized)
+ *   2. Recent internal · Notes & video
+ *   3. Season quick stats (4 cards)
+ *   4. Performance snapshot (Technical + Physical top-3 metrics)
+ *   5. Squad context preview (3 mini leaderboards)
+ *   6. Position heatmap (landscape) + Market value chart (3/5 + 2/5)
+ *   7. Upcoming fixtures
+ *
+ * Each section handles its own empty state internally and may render
+ * nothing when data is unavailable.
+ */
+export function OverviewTab({
+  profile: _profile,
+  synthesis,
+  notes,
+  totalNoteCount,
+  clips,
+  totalClipCount,
+  seasonContextLabel,
+  quickStats,
+  technicalMetrics,
+  physicalMetrics,
+  technicalContext,
+  physicalContext,
+  squadContextLabel,
+  leaderboards,
+  positionData,
+  positionTotalMinutes,
+  positionTotalMatches,
+  marketValueHistory,
+  upcomingFixtures,
+  existingCalendarMatchIds,
+  onFullPerformance,
+  onFullComparison,
+  onViewScouting,
+  onWriteReport,
+  onWriteNote,
+  onUploadClip,
+  onChangeSeason,
+  onAddFixtureToCalendar,
+}: OverviewTabProps) {
+  return (
+    <div className="space-y-6">
+      <ScoutingVerdictCard
+        synthesis={synthesis}
+        onWriteReport={onWriteReport}
+        onViewAllReports={onViewScouting}
+      />
+
+      <RecentInternal
+        notes={notes}
+        clips={clips}
+        totalNoteCount={totalNoteCount}
+        totalClipCount={totalClipCount}
+        onWriteNote={onWriteNote}
+        onUploadClip={onUploadClip}
+        onViewAll={onViewScouting}
+      />
+
+      <SeasonQuickStats
+        contextLabel={seasonContextLabel}
+        stats={quickStats}
+        onChangeSeason={onChangeSeason}
+      />
+
+      <PerformanceSnapshot
+        technicalMetrics={technicalMetrics}
+        physicalMetrics={physicalMetrics}
+        technicalContext={technicalContext}
+        physicalContext={physicalContext}
+        onFullPerformance={onFullPerformance}
+      />
+
+      <SquadContextPreview
+        contextLabel={squadContextLabel}
+        leaderboards={leaderboards}
+        onFullComparison={onFullComparison}
+      />
+
+      {(positionData || marketValueHistory) && (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+          {positionData && (
+            <div className="md:col-span-3">
+              <PositionHeatmapLandscape
+                data={positionData}
+                totalMinutes={positionTotalMinutes}
+                totalMatches={positionTotalMatches}
+              />
+            </div>
+          )}
+          {marketValueHistory && (
+            <div className="md:col-span-2">
+              <MarketValueChartV2 data={marketValueHistory} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <UpcomingFixtures
+        fixtures={upcomingFixtures}
+        existingCalendarMatchIds={existingCalendarMatchIds}
+        onAddToCalendar={onAddFixtureToCalendar}
+      />
+    </div>
+  )
+}

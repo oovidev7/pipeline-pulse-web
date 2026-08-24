@@ -17,8 +17,12 @@ import {
 } from "./types";
 import { runWithConcurrency } from "./google-auth";
 
+import { unstable_cache, revalidateTag } from "next/cache";
+
 const ATTIO_BASE = "https://api.attio.com/v2";
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+/** Shared-cache window. Longer, because it survives between invocations. */
+const SHARED_SNAPSHOT_SECONDS = 3600;
 
 function apiKey(): string {
   const key = process.env.ATTIO_API_KEY;
@@ -26,21 +30,40 @@ function apiKey(): string {
   return key;
 }
 
-async function attioFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`${ATTIO_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
+/**
+ * Attio rate-limits per workspace, and the dashboard loads seven sections at
+ * once — so a burst is normal traffic here, not misuse. A 429 is retried with
+ * backoff rather than surfaced, because failing a section for a transient limit
+ * shows the user an error where a half-second wait would have succeeded.
+ */
+const RATE_LIMIT_RETRIES = 3;
+
+export async function attioFetch(path: string, init?: RequestInit) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${ATTIO_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+
+    if (res.ok) return res.json();
+
+    if (res.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : 400 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+
     const text = await res.text().catch(() => "");
     throw new Error(`Attio request failed (${res.status}): ${path} ${text}`);
   }
-  return res.json();
 }
 
 /** Paginates through POST /v2/objects/{object}/records/query, fetching all records. */
@@ -129,6 +152,13 @@ function normalizeDeal(record: any): DealRecord {
     personEmails: [],
     createdAt: record?.created_at || null,
     stallNotes: getAttrString(record, "stall_notes"),
+    // Fields that existed in Attio from the start and went unread until
+    // 2026-08-24. `note` in particular carries human verdicts — Spartak
+    // Moscow's reads "one more try then move to lost" — which is exactly the
+    // judgement the dashboard should surface rather than recompute.
+    dealNote: getAttrString(record, "note"),
+    lastWhatsappTouch: getAttrDate(record, "last_whatsapp_touch"),
+    source: getAttrString(record, "source"),
     associatedCompanyId: getReferencedIds(record, "associated_company")[0] ?? null,
     companyDomain: null,
     contactsViaCompany: false,
@@ -154,6 +184,26 @@ function strongerOf(a: string | null, b: string | null): string | null {
   return CONNECTION_STRENGTH_ORDER.indexOf(a) >= CONNECTION_STRENGTH_ORDER.indexOf(b)
     ? a
     : b;
+}
+
+export interface CompanyRecord {
+  id: string;
+  name: string;
+  /** ISO country code from `primary_location`, for grouping by market. */
+  countryCode: string | null;
+}
+
+/**
+ * Companies, kept for grouping deals and meetings by market. Location comes
+ * from Attio's enrichment rather than a club-name lookup table, which would
+ * break on the first ambiguous name and silently misfile it.
+ */
+function normalizeCompanies(records: any[]): CompanyRecord[] {
+  return records.map((record) => ({
+    id: record?.id?.record_id,
+    name: getAttrString(record, "name") || "Unknown",
+    countryCode: getAttrValue(record, "primary_location")?.country_code ?? null,
+  }));
 }
 
 /** Company id → primary email domain, from the companies object's `domains`. */
@@ -211,6 +261,12 @@ function normalizePerson(record: any): PersonRecord {
     // Interaction attributes carry `interacted_at` rather than `value`.
     lastEmailInteraction:
       getAttrValue(record, "last_email_interaction")?.interacted_at ?? null,
+    // Attio syncs calendar independently of our Google tokens, so these are
+    // populated even for the accounts whose refresh tokens are missing.
+    lastCalendarInteraction:
+      getAttrValue(record, "last_calendar_interaction")?.interacted_at ?? null,
+    nextCalendarInteraction:
+      getAttrValue(record, "next_calendar_interaction")?.interacted_at ?? null,
     connectionStrength:
       getAttrValue(record, "strongest_connection_strength")?.option?.title ?? null,
     strongestConnectionUserId:
@@ -221,6 +277,7 @@ function normalizePerson(record: any): PersonRecord {
 export interface AttioSnapshot {
   deals: DealRecord[];
   people: PersonRecord[];
+  companies: CompanyRecord[];
   members: WorkspaceMember[];
   /** Stage history per deal id. Empty when the history fetch failed. */
   stageHistory: Record<string, StageHistoryEntry[]>;
@@ -277,12 +334,7 @@ async function fetchAllStageHistory(
 let rawCache: { data: AttioSnapshot; timestamp: number } | null = null;
 let computedCache: { data: DealsApiResponse; timestamp: number } | null = null;
 
-/** Fetches deals, people, and workspace members from Attio (raw, uncomputed). Cached 3 min. */
-export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnapshot> {
-  if (!forceRefresh && rawCache && Date.now() - rawCache.timestamp < CACHE_TTL_MS) {
-    return rawCache.data;
-  }
-
+async function buildSnapshot(): Promise<AttioSnapshot> {
   const [dealRecords, personRecords, companyRecords, members] = await Promise.all([
     listAllRecords("deals"),
     listAllRecords("people"),
@@ -309,8 +361,15 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
     const companyPeople = d.associatedCompanyId
       ? peopleByCompany.get(d.associatedCompanyId) ?? []
       : [];
+    // Union, not either/or. Taking the direct links *instead of* the company's
+    // people hid 122 contacts across 32 open deals — 23 of them people who had
+    // actually replied — because a single direct link suppressed the whole
+    // company card. Thirteen deals were scored "single-threaded" or "never
+    // reached" while someone at the club was mid-conversation with us.
     const contactsViaCompany = d.personIds.length === 0 && companyPeople.length > 0;
-    const personIds = contactsViaCompany ? companyPeople.map((p) => p.id) : d.personIds;
+    const personIds = [
+      ...new Set([...d.personIds, ...companyPeople.map((p) => p.id)]),
+    ];
     const contacts = personIds
       .map((pid) => peopleById.get(pid))
       .filter((p): p is PersonRecord => Boolean(p));
@@ -362,7 +421,39 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
     };
   });
 
-  const data: AttioSnapshot = { deals, people, members, stageHistory };
+  const data: AttioSnapshot = {
+    deals,
+    people,
+    companies: normalizeCompanies(companyRecords),
+    members,
+    stageHistory,
+  };
+  return data;
+}
+
+/**
+ * The snapshot, cached in two layers.
+ *
+ * Building it costs a records query per object plus one stage-history request
+ * per deal — around sixty calls. The in-memory layer covers repeat reads inside
+ * a single invocation; the shared layer is what survives between them, since
+ * every serverless invocation starts with an empty module scope and would
+ * otherwise rebuild the whole thing for whoever arrives next.
+ *
+ * `forceRefresh` deliberately bypasses both: it exists for the moment after a
+ * write, where returning a cached copy would show the user their change had not
+ * happened.
+ */
+const sharedSnapshot = unstable_cache(buildSnapshot, ["attio-snapshot"], {
+  revalidate: SHARED_SNAPSHOT_SECONDS,
+  tags: ["attio-snapshot"],
+});
+
+export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnapshot> {
+  if (!forceRefresh && rawCache && Date.now() - rawCache.timestamp < CACHE_TTL_MS) {
+    return rawCache.data;
+  }
+  const data = forceRefresh ? await buildSnapshot() : await sharedSnapshot();
   rawCache = { data, timestamp: Date.now() };
   return data;
 }
@@ -898,6 +989,13 @@ function invalidateCaches(): void {
   rawCache = null;
   computedCache = null;
   tasksCache = null;
+  // The shared copy too, or a write would appear to have done nothing until
+  // the revalidate window expired an hour later.
+  try {
+    revalidateTag("attio-snapshot");
+  } catch {
+    // Called outside a request scope (a script, a test) — nothing to drop.
+  }
 }
 
 /**

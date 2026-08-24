@@ -1,0 +1,394 @@
+'use client'
+
+import { useState, useMemo, useCallback } from 'react'
+import Image from 'next/image'
+import { useRouter } from 'next/navigation'
+import { User, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { SquadPlayer } from '@/lib/types/profiles'
+import { formatMarketValue } from '@/lib/utils'
+import { useTenantLink } from '@/lib/context/tenant-context'
+
+interface ClubSquadProps {
+  players: SquadPlayer[]
+  clubId: string
+}
+
+type SortField = 'position' | 'name' | 'age' | 'value' | 'minutes' | 'contract'
+type SortDirection = 'asc' | 'desc'
+type MinutesView = 'league' | 'all'
+
+const POSITION_ORDER: Record<string, number> = {
+  GK: 1,
+  DEF: 2,
+  MID: 3,
+  FWD: 4,
+}
+
+export function ClubSquad({ players }: ClubSquadProps) {
+  const router = useRouter()
+  const tenantLink = useTenantLink()
+  const [sortField, setSortField] = useState<SortField>('position')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [minutesView, setMinutesView] = useState<MinutesView>('league')
+
+  // Helper to get the correct minutes value based on view
+  const getMinutes = useCallback(
+    (player: SquadPlayer): number => {
+      if (minutesView === 'league') {
+        return player.minutesPlayedLeague ?? player.minutesPlayed ?? 0
+      }
+      return player.minutesPlayedAll ?? player.minutesPlayed ?? 0
+    },
+    [minutesView]
+  )
+
+  const handlePlayerClick = (playerUuid: string) => {
+    router.push(tenantLink(`/player/${playerUuid}`))
+  }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      // Default directions for each field
+      setSortDirection(field === 'name' || field === 'position' ? 'asc' : 'desc')
+    }
+  }
+
+  // Denominator for the Share column — "% of possible minutes the
+  // player has been on the pitch". We use the max minutes across the
+  // squad as a proxy for total possible minutes (the busiest player
+  // ≈ has played every minute). Works for both League Only and All
+  // Competitions because getMinutes flips with the view toggle.
+  const maxMinutes = useMemo(
+    () => players.reduce((max, p) => Math.max(max, getMinutes(p)), 0),
+    [players, getMinutes]
+  )
+
+  const sortedPlayers = useMemo(() => {
+    return [...players].sort((a, b) => {
+      let comparison = 0
+
+      switch (sortField) {
+        case 'position': {
+          const posA = POSITION_ORDER[a.positionCategory || ''] || 99
+          const posB = POSITION_ORDER[b.positionCategory || ''] || 99
+          comparison = posA - posB
+          break
+        }
+        case 'name':
+          comparison = a.name.localeCompare(b.name)
+          break
+        case 'age':
+          comparison = (a.age || 0) - (b.age || 0)
+          break
+        case 'value':
+          comparison = (a.marketValue || 0) - (b.marketValue || 0)
+          break
+        case 'minutes':
+          comparison = getMinutes(a) - getMinutes(b)
+          break
+        case 'contract': {
+          const dateA = a.contractExpires ? new Date(a.contractExpires).getTime() : 0
+          const dateB = b.contractExpires ? new Date(b.contractExpires).getTime() : 0
+          comparison = dateA - dateB
+          break
+        }
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [players, sortField, sortDirection, getMinutes])
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      {/* Minutes View Toggle */}
+      <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+        <span className="font-mono text-[10px] font-semibold tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+          Minutes Played
+        </span>
+        <Tabs value={minutesView} onValueChange={v => setMinutesView(v as MinutesView)}>
+          <TabsList className="h-7">
+            <TabsTrigger value="league" className="px-2.5 py-1 text-xs">
+              League Only
+            </TabsTrigger>
+            <TabsTrigger value="all" className="px-2.5 py-1 text-xs">
+              All Competitions
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/50">
+              <th className="w-10 px-3 py-3 text-left">
+                <span className="font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-400">
+                  #
+                </span>
+              </th>
+              <SortHeader
+                label="Player"
+                field="name"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="left"
+              />
+              <SortHeader
+                label="Pos"
+                field="position"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="center"
+              />
+              <SortHeader
+                label="Age"
+                field="age"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="center"
+                className="hidden sm:table-cell"
+              />
+              <SortHeader
+                label="Minutes"
+                field="minutes"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="right"
+                className="hidden md:table-cell"
+              />
+              <th className="hidden px-3 py-3 text-right md:table-cell">
+                <span className="font-mono text-[10px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-400">
+                  Share
+                </span>
+              </th>
+              <SortHeader
+                label="Value"
+                field="value"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="right"
+                className="hidden lg:table-cell"
+              />
+              <SortHeader
+                label="Contract"
+                field="contract"
+                currentField={sortField}
+                direction={sortDirection}
+                onSort={handleSort}
+                align="right"
+                className="hidden lg:table-cell"
+              />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {sortedPlayers.map(player => (
+              <tr
+                key={player.uuid}
+                onClick={() => handlePlayerClick(player.uuid)}
+                className="cursor-pointer transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+              >
+                {/* Shirt number */}
+                <td className="px-3 py-2.5 text-center">
+                  <span className="font-mono text-sm font-medium text-zinc-500 tabular-nums dark:text-zinc-400">
+                    {player.shirtNumber || '-'}
+                  </span>
+                </td>
+
+                {/* Player name with photo */}
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative h-8 w-8 flex-shrink-0 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                      {player.photoUrl ? (
+                        <Image
+                          src={player.photoUrl}
+                          alt={player.name}
+                          fill
+                          className="object-cover"
+                          sizes="32px"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <User className="h-4 w-4 text-zinc-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        {player.name}
+                      </div>
+                      {player.nationality && (
+                        <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                          {player.nationality}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </td>
+
+                {/* Position */}
+                <td className="px-3 py-2.5 text-center">
+                  <span
+                    className={`inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider ${getPositionBadgeClasses(player.positionCategory)}`}
+                  >
+                    {player.positionCategory || '-'}
+                  </span>
+                </td>
+
+                {/* Age */}
+                <td className="hidden px-3 py-2.5 text-center sm:table-cell">
+                  <span className="text-sm text-zinc-700 tabular-nums dark:text-zinc-300">
+                    {player.age || '-'}
+                  </span>
+                </td>
+
+                {/* Minutes */}
+                <td className="hidden px-3 py-2.5 text-right md:table-cell">
+                  <span className="text-sm text-zinc-700 tabular-nums dark:text-zinc-300">
+                    {getMinutes(player) > 0 ? getMinutes(player).toLocaleString() : '-'}
+                  </span>
+                </td>
+
+                {/* Share of team minutes */}
+                <td className="hidden px-3 py-2.5 text-right md:table-cell">
+                  {maxMinutes > 0 && getMinutes(player) > 0 ? (
+                    <span className="text-sm text-zinc-500 tabular-nums dark:text-zinc-400">
+                      {Math.round((getMinutes(player) / maxMinutes) * 100)}%
+                    </span>
+                  ) : (
+                    <span className="text-sm text-zinc-300 dark:text-zinc-600">-</span>
+                  )}
+                </td>
+
+                {/* Value */}
+                <td className="hidden px-3 py-2.5 text-right lg:table-cell">
+                  <span className="text-sm font-medium text-emerald-600 tabular-nums dark:text-emerald-400">
+                    {formatMarketValue(player.marketValue) || '-'}
+                  </span>
+                </td>
+
+                {/* Contract */}
+                <td className="hidden px-3 py-2.5 text-right lg:table-cell">
+                  <span
+                    className={`text-sm tabular-nums ${getContractColorClasses(player.contractExpires)}`}
+                  >
+                    {formatContractYear(player.contractExpires)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+interface SortHeaderProps {
+  label: string
+  field: SortField
+  currentField: SortField
+  direction: SortDirection
+  onSort: (field: SortField) => void
+  align?: 'left' | 'center' | 'right'
+  className?: string
+}
+
+function SortHeader({
+  label,
+  field,
+  currentField,
+  direction,
+  onSort,
+  align = 'left',
+  className,
+}: SortHeaderProps) {
+  const isActive = currentField === field
+  const alignClass = {
+    left: 'text-left',
+    center: 'text-center',
+    right: 'text-right',
+  }[align]
+
+  return (
+    <th className={`px-3 py-3 ${alignClass} ${className || ''}`}>
+      <button
+        onClick={() => onSort(field)}
+        className={`inline-flex items-center gap-1 font-mono text-[10px] font-medium tracking-wider uppercase transition-colors ${
+          isActive
+            ? 'text-zinc-900 dark:text-zinc-100'
+            : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300'
+        }`}
+      >
+        {label}
+        {isActive ? (
+          direction === 'asc' ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />
+        )}
+      </button>
+    </th>
+  )
+}
+
+function getPositionBadgeClasses(category: string | null): string {
+  switch (category) {
+    case 'GK':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
+    case 'DEF':
+      return 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300'
+    case 'MID':
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+    case 'FWD':
+      return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
+    default:
+      return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+  }
+}
+
+function formatContractYear(dateString: string | undefined): string {
+  if (!dateString) return '-'
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return '-'
+    return date.getFullYear().toString()
+  } catch {
+    return '-'
+  }
+}
+
+function getContractColorClasses(dateString: string | undefined): string {
+  if (!dateString) return 'text-zinc-500 dark:text-zinc-400'
+
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return 'text-zinc-500 dark:text-zinc-400'
+
+    const now = new Date()
+    const monthsRemaining = Math.round(
+      (date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30)
+    )
+
+    if (monthsRemaining <= 6) {
+      return 'text-red-600 dark:text-red-400 font-medium'
+    }
+    if (monthsRemaining <= 12) {
+      return 'text-amber-600 dark:text-amber-400'
+    }
+    return 'text-zinc-700 dark:text-zinc-300'
+  } catch {
+    return 'text-zinc-500 dark:text-zinc-400'
+  }
+}

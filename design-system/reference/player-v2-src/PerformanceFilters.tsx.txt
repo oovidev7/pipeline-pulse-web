@@ -1,0 +1,201 @@
+'use client'
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import { isLowSampleMinutes } from '@/lib/services/position-sample'
+import type { ReactNode } from 'react'
+import type { ImpectPositionOption } from '@/lib/services/metric-service'
+
+export interface FilterOption {
+  id: number
+  label: string
+}
+
+interface PerformanceFiltersProps {
+  /** Available season choices. Hides the picker when there's 0 or 1. */
+  seasons: FilterOption[]
+  /** Available competition choices. Hides the picker when there's 0 or 1. */
+  competitions: FilterOption[]
+  /** Currently-applied season id (null = all seasons). */
+  seasonId: number | null
+  /** Currently-applied competition id (null = all competitions). */
+  competitionId: number | null
+  /** Read-only label for the comparison group — fallback when only one position. */
+  comparisonGroup: string
+  /** Positions the player has metrics for. >1 → a real "vs" position selector. */
+  positions: ImpectPositionOption[]
+  /** Currently-selected position id. */
+  positionId: number | null
+  /** Called when the scout picks a different position. */
+  onChangePosition?: (positionId: number, positionCode: string) => void
+  /** Called when the scout picks a different season. */
+  onChangeSeason?: (seasonId: number | null) => void
+  /** Called when the scout picks a different competition. */
+  onChangeCompetition?: (competitionId: number | null) => void
+  /** Disabled while a refetch is in flight. */
+  disabled?: boolean
+}
+
+/**
+ * Filter row above the Performance tab content. Season + Comp are real
+ * native-select dropdowns so the keyboard / screen-reader story is
+ * sound for free; the comparison group stays display-only for now —
+ * Concord drives the percentile group from the player's main position.
+ */
+export function PerformanceFilters({
+  seasons,
+  competitions,
+  seasonId,
+  competitionId,
+  comparisonGroup,
+  positions,
+  positionId,
+  onChangePosition,
+  onChangeSeason,
+  onChangeCompetition,
+  disabled = false,
+}: PerformanceFiltersProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Season / Comp: a real dropdown when there's a choice, a static
+          non-interactive pill when there's only one (so the context still
+          shows), hidden only when there's nothing to show. */}
+      {seasons.length > 1 ? (
+        <PillSelect
+          label="Season"
+          value={seasonId == null ? '' : String(seasonId)}
+          options={seasons.map(s => ({ value: String(s.id), label: s.label }))}
+          onChange={v => onChangeSeason?.(v === '' ? null : Number(v))}
+          disabled={disabled}
+        />
+      ) : seasons.length === 1 ? (
+        <StaticPill label="Season" value={seasons[0].label} />
+      ) : null}
+      {competitions.length > 1 ? (
+        <PillSelect
+          label="Comp"
+          value={competitionId == null ? '' : String(competitionId)}
+          options={competitions.map(c => ({ value: String(c.id), label: c.label }))}
+          onChange={v => onChangeCompetition?.(v === '' ? null : Number(v))}
+          disabled={disabled}
+        />
+      ) : competitions.length === 1 ? (
+        <StaticPill label="Comp" value={competitions[0].label} />
+      ) : null}
+      {/* "vs <position>" — a real selector across every position the player has
+          metrics for. With a single (or no) option it renders as a static,
+          non-interactive pill so it doesn't masquerade as a dropdown. Positions
+          below the reliable-sample bar show their minutes in red. */}
+      {positions.length > 1 ? (
+        <PillSelect
+          label="vs"
+          value={positionId == null ? '' : String(positionId)}
+          options={positions.map(p => ({
+            value: String(p.positionId),
+            label: <PositionOptionLabel position={p} />,
+          }))}
+          onChange={v => {
+            const pos = positions.find(p => String(p.positionId) === v)
+            if (pos) onChangePosition?.(pos.positionId, pos.positionCode)
+          }}
+          disabled={disabled}
+        />
+      ) : (
+        <StaticPill
+          label="vs"
+          value={positions[0] ? <PositionOptionLabel position={positions[0]} /> : comparisonGroup}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Pill-styled dropdown. Keeps the FilterPill visual language — mono
+ * micro-label · value · chevron — but is built on the shared Radix `Select`
+ * (components/ui/select) so the open menu is themed and dark-mode correct,
+ * consistent with the rest of the app. (It replaced a raw native <select>
+ * whose OS-drawn menu was low-contrast in dark mode.)
+ */
+function PillSelect({
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  label: string
+  value: string
+  options: { value: string; label: ReactNode }[]
+  onChange: (next: string) => void
+  disabled?: boolean
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger
+        size="sm"
+        aria-label={label}
+        className="gap-2 rounded-md border-zinc-200 bg-white px-2.5 text-sm shadow-none hover:border-zinc-300 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+      >
+        <span className="font-mono text-[10px] tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+          {label}
+        </span>
+        <SelectValue className="font-medium text-zinc-900 dark:text-zinc-100" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(opt => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/**
+ * A position option label: "Central Midfielder · 1386'". Minutes below the
+ * reliable-sample bar render in red to flag that this position's percentile
+ * charts aren't backed by enough data to be accurate.
+ */
+function PositionOptionLabel({ position }: { position: ImpectPositionOption }) {
+  return (
+    <span>
+      {position.label}
+      <span className="text-zinc-400 dark:text-zinc-500"> · </span>
+      <span
+        className={cn(
+          'tabular-nums',
+          isLowSampleMinutes(position.minutes) && 'text-red-600 dark:text-red-400'
+        )}
+      >
+        {Math.round(position.minutes)}&apos;
+      </span>
+    </span>
+  )
+}
+
+/**
+ * Non-interactive twin of the PillSelect trigger — same mono micro-label +
+ * value styling, but no chevron and no hover/affordance, so a single-option
+ * "vs" reads as a label rather than a dropdown you can open.
+ */
+function StaticPill({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div
+      aria-label={label}
+      className="inline-flex h-8 items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <span className="font-mono text-[10px] tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+        {label}
+      </span>
+      <span className="font-medium text-zinc-900 dark:text-zinc-100">{value}</span>
+    </div>
+  )
+}

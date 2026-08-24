@@ -1,0 +1,481 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-outfit: var(--font-outfit);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-navy-light: var(--brand-navy-light);
+  --color-brand-navy-dark: var(--brand-navy-dark);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  /* Brand colors - Sentrum navy */
+  --brand-navy: oklch(0.216 0.015 256.71); /* #1e293b slate-800 equivalent */
+  --brand-navy-light: oklch(0.294 0.017 256.71); /* lighter navy */
+  --brand-navy-dark: oklch(0.147 0.012 256.71); /* darker navy */
+  /* Nested container design system shadows */
+  --shadow-nested: 0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 8px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.04), 0 8px 16px rgba(0, 0, 0, 0.06);
+  --shadow-floating: 0 4px 6px rgba(0, 0, 0, 0.05), 0 12px 24px rgba(0, 0, 0, 0.08);
+  --shell-bg: oklch(0.97 0.001 106.424);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.147 0.004 49.25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.147 0.004 49.25);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.147 0.004 49.25);
+  --primary: oklch(0.216 0.006 56.043);
+  --primary-foreground: oklch(0.985 0.001 106.423);
+  --secondary: oklch(0.97 0.001 106.424);
+  --secondary-foreground: oklch(0.216 0.006 56.043);
+  --muted: oklch(0.97 0.001 106.424);
+  --muted-foreground: oklch(0.553 0.013 58.071);
+  --accent: oklch(0.97 0.001 106.424);
+  --accent-foreground: oklch(0.216 0.006 56.043);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.923 0.003 48.717);
+  --input: oklch(0.923 0.003 48.717);
+  --ring: oklch(0.709 0.01 56.259);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0.001 106.423);
+  --sidebar-foreground: oklch(0.147 0.004 49.25);
+  --sidebar-primary: oklch(0.216 0.006 56.043);
+  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-accent: oklch(0.97 0.001 106.424);
+  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
+  --sidebar-border: oklch(0.923 0.003 48.717);
+  --sidebar-ring: oklch(0.709 0.01 56.259);
+}
+
+.dark {
+  /* Brand colors - Sentrum navy */
+  --brand-navy: oklch(0.216 0.015 256.71); /* #1e293b slate-800 equivalent */
+  --brand-navy-light: oklch(0.294 0.017 256.71); /* lighter navy */
+  --brand-navy-dark: oklch(0.147 0.012 256.71); /* darker navy */
+  /* Nested container design system shadows - dark mode */
+  --shadow-nested: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.15);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.2), 0 8px 16px rgba(0, 0, 0, 0.2);
+  --shadow-floating: 0 4px 6px rgba(0, 0, 0, 0.3), 0 12px 24px rgba(0, 0, 0, 0.25);
+  --shell-bg: oklch(0.145 0.004 49.25);
+  --background: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.985 0.001 106.423);
+  --card: oklch(0.216 0.006 56.043);
+  --card-foreground: oklch(0.985 0.001 106.423);
+  --popover: oklch(0.216 0.006 56.043);
+  --popover-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(0.923 0.003 48.717);
+  --primary-foreground: oklch(0.216 0.006 56.043);
+  --secondary: oklch(0.268 0.007 34.298);
+  --secondary-foreground: oklch(0.985 0.001 106.423);
+  --muted: oklch(0.268 0.007 34.298);
+  --muted-foreground: oklch(0.709 0.01 56.259);
+  --accent: oklch(0.268 0.007 34.298);
+  --accent-foreground: oklch(0.985 0.001 106.423);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.553 0.013 58.071);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.216 0.006 56.043);
+  --sidebar-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-accent: oklch(0.268 0.007 34.298);
+  --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.553 0.013 58.071);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /*
+   * Contract Explorer filter sliders. Native <input type="range"> styled to the
+   * zinc/emerald dossier palette. The dual-thumb age slider stacks two of these
+   * absolutely; the wrapper sets `pointer-events-none` and we re-enable pointer
+   * events on the thumbs only so both thumbs stay draggable through the overlap.
+   */
+  .ce-range {
+    height: 1.25rem;
+    cursor: pointer;
+  }
+  .ce-range::-webkit-slider-runnable-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background-color: var(--color-zinc-200, #e4e4e7);
+  }
+  .ce-range::-moz-range-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background-color: var(--color-zinc-200, #e4e4e7);
+  }
+  .ce-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: auto;
+    margin-top: -0.3125rem;
+    height: 0.875rem;
+    width: 0.875rem;
+    border-radius: 9999px;
+    border: 2px solid var(--color-emerald-500, #22c55e);
+    background-color: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  }
+  .ce-range::-moz-range-thumb {
+    pointer-events: auto;
+    height: 0.875rem;
+    width: 0.875rem;
+    border-radius: 9999px;
+    border: 2px solid var(--color-emerald-500, #22c55e);
+    background-color: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  }
+  .dark .ce-range::-webkit-slider-runnable-track,
+  .dark .ce-range::-moz-range-track {
+    background-color: var(--color-zinc-700, #3f3f46);
+  }
+  /*
+   * The Age control stacks TWO range inputs over one shared visible track (the
+   * <div> in FilterRail). Each input's own track must be transparent — otherwise
+   * the top (later-in-DOM) input's gray track paints over the bottom input's
+   * thumb, so that thumb looks like it's sitting BEHIND the line. Single sliders
+   * keep the opaque `.ce-range` track above.
+   */
+  .ce-range-overlay::-webkit-slider-runnable-track,
+  .ce-range-overlay::-moz-range-track,
+  .dark .ce-range-overlay::-webkit-slider-runnable-track,
+  .dark .ce-range-overlay::-moz-range-track {
+    background-color: transparent;
+  }
+
+  .shadow-nested {
+    box-shadow: var(--shadow-nested);
+  }
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+  .shadow-floating {
+    box-shadow: var(--shadow-floating);
+  }
+  .bg-shell {
+    background-color: var(--shell-bg);
+  }
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /*
+   * Slim, always-visible scrollbar. Use when an overflow container
+   * needs the scroll affordance to be obviously discoverable — e.g.
+   * the recruitment board where revealing extra columns can push the
+   * grid past viewport width but the default macOS / overlay
+   * scrollbar is invisible until you scroll. The light track helps
+   * operators see "there's more here" without having to fish for it.
+   */
+  .scrollbar-visible {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(156 163 175 / 0.5) transparent; /* gray-400 */
+  }
+  .dark .scrollbar-visible {
+    scrollbar-color: rgb(75 85 99 / 0.6) transparent; /* gray-600 */
+  }
+  .scrollbar-visible::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+  .scrollbar-visible::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-visible::-webkit-scrollbar-thumb {
+    background-color: rgb(156 163 175 / 0.5); /* gray-400 */
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .dark .scrollbar-visible::-webkit-scrollbar-thumb {
+    background-color: rgb(75 85 99 / 0.6); /* gray-600 */
+  }
+  .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(107 114 128 / 0.8); /* gray-500 */
+  }
+}
+
+/* ============================================================================
+   React Grid Layout Styles
+   ============================================================================ */
+
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+}
+
+.react-grid-item {
+  position: relative;
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+
+.react-grid-item > div {
+  height: 100%;
+  overflow: hidden;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform, width, height;
+}
+
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 100;
+  will-change: transform;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.25),
+    0 0 0 2px rgba(251, 191, 36, 0.5);
+  border-radius: 0.75rem;
+}
+
+.react-grid-item.dropping {
+  visibility: hidden;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(251, 191, 36, 0.15);
+  border: 2px dashed rgba(251, 191, 36, 0.5);
+  border-radius: 0.75rem;
+  opacity: 1;
+  transition-duration: 100ms;
+  z-index: 2;
+}
+
+/* Dark mode placeholder */
+.dark .react-grid-item.react-grid-placeholder {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+/* Resize Handle Styling */
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+
+.react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid hsl(var(--muted-foreground) / 0.4);
+  border-bottom: 2px solid hsl(var(--muted-foreground) / 0.4);
+}
+
+.react-resizable-handle-se {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+/* Hide resize handles in view mode */
+.react-grid-item.static .react-resizable-handle {
+  display: none;
+}
+
+/* Widget drag handle */
+.widget-drag-handle {
+  cursor: move;
+}
+
+.widget-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Feedback widget highlight animation (triggered by nudge CTA) */
+@keyframes feedback-highlight {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 oklch(0.6 0.2 145 / 0);
+    transform: scale(1);
+  }
+  50% {
+    background-color: oklch(0.6 0.2 145 / 0.15);
+    box-shadow: 0 0 0 8px oklch(0.6 0.2 145 / 0.25);
+    transform: scale(1.02);
+  }
+}
+
+.animate-feedback-highlight {
+  animation: feedback-highlight 0.6s ease-in-out 5;
+  border-radius: 0.375rem;
+}
+
+/* ============================================================================
+   Onboarding Tutorial Animations
+   ============================================================================ */
+
+/* Spotlight pulse animation for highlighted elements */
+@keyframes spotlight-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.7 0.2 40 / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px oklch(0.7 0.2 40 / 0);
+  }
+}
+
+.animate-spotlight-pulse {
+  animation: spotlight-pulse 2s ease-in-out infinite;
+}
+
+/* Subtle pulse for demo message button */
+@keyframes pulse-subtle {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+/* Tooltip fade in animation */
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tooltip-fade-in {
+  animation: tooltip-fade-in 0.2s ease-out forwards;
+}
+
+/* Overlay fade in animation */
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-overlay-fade-in {
+  animation: overlay-fade-in 0.3s ease-out forwards;
+}
+
+/* Percentile bar fill — grows from the left on mount (Performance tab).
+   scaleX is GPU-composited; `both` holds the from-state through any delay. */
+@keyframes bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-bar-fill {
+  transform-origin: left;
+  animation: bar-fill 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Progress dot transition */
+.onboarding-progress-dot {
+  transition: all 0.2s ease-out;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spotlight-pulse,
+  .animate-pulse-subtle,
+  .animate-tooltip-fade-in,
+  .animate-overlay-fade-in,
+  .animate-bar-fill {
+    animation: none;
+  }
+
+  .onboarding-progress-dot {
+    transition: none;
+  }
+}

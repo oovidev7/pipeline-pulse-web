@@ -1,0 +1,30 @@
+import { cn } from '@/lib/utils'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
+
+interface StatCardProps extends ComponentPropsWithoutRef<'div'> {
+  children: ReactNode
+  /** Slightly darker border for cards that should anchor visual attention */
+  emphasis?: boolean
+  className?: string
+}
+
+/**
+ * Plain bordered card primitive. No status rails, no decorative chrome.
+ * Hover lifts the border. Use as the base for every card-like surface
+ * in the v2 profile. Forwards arbitrary `div` props (e.g. `data-testid`,
+ * `role`) so callers can hook in without re-implementing the surface.
+ */
+export function StatCard({ children, emphasis = false, className, ...rest }: StatCardProps) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border bg-white transition-all hover:border-zinc-400 dark:bg-zinc-900 dark:hover:border-zinc-600',
+        emphasis ? 'border-zinc-300 dark:border-zinc-700' : 'border-zinc-200 dark:border-zinc-800',
+        className
+      )}
+      {...rest}
+    >
+      {children}
+    </div>
+  )
+}

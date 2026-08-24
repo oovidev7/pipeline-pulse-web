@@ -1,0 +1,33 @@
+import { cn } from '@/lib/utils'
+import type { ReactNode } from 'react'
+
+interface EyebrowProps {
+  children: ReactNode
+  /** Show the small emerald dot before the label (default true) */
+  dot?: boolean
+  /** Default = `text-[10px] tracking-[0.22em]`, sm = `text-[9px] tracking-[0.18em]` */
+  size?: 'default' | 'sm'
+  className?: string
+}
+
+/**
+ * Calendar-style eyebrow label. Mono · uppercase · heavy tracking.
+ * Use to mark every section in the v2 player profile.
+ *
+ * <Eyebrow>Profile · External · FC Barcelona</Eyebrow>
+ */
+export function Eyebrow({ children, dot = true, size = 'default', className }: EyebrowProps) {
+  return (
+    <div
+      data-eyebrow=""
+      className={cn(
+        'flex items-center gap-2 font-mono font-semibold text-zinc-500 uppercase dark:text-zinc-400',
+        size === 'default' ? 'text-[10px] tracking-[0.22em]' : 'text-[9px] tracking-[0.18em]',
+        className
+      )}
+    >
+      {dot && <span className="inline-block h-1 w-1 shrink-0 rounded-full bg-emerald-500" />}
+      <span>{children}</span>
+    </div>
+  )
+}

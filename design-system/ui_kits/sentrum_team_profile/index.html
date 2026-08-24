@@ -1,0 +1,126 @@
+<!-- @dsCard group="Sentrum App" viewport="1280x900" name="Team profile" subtitle="Club page — header KPIs, overview cards, squad, table" -->
+<!-- @startingPoint section="Sentrum App" subtitle="Team/club profile with overview, squad & table" viewport="1280x900" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentrum — Team profile</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--shell-bg); overflow: hidden; }
+  #root { height: 100vh; }
+
+  /* ---- Shell (same anatomy as the other kits) ---- */
+  .app-shell { display: flex; height: 100%; }
+  .app-main {
+    flex: 1;
+    min-width: 0;
+    margin: 12px 12px 12px 0;
+    background: var(--surface-card);
+    border: 1px solid var(--border-card);
+    border-left: none;
+    border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+    box-shadow: var(--shadow-nested);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .app-sidebar {
+    width: 256px;
+    flex-shrink: 0;
+    margin: 12px 0 12px 12px;
+    background: var(--surface-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+    box-shadow: var(--shadow-nested);
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease-in-out;
+    overflow: hidden;
+  }
+  .app-sidebar--collapsed { width: 64px; }
+  .sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
+  .brand-btn { border: none; background: none; padding: 0; cursor: pointer; }
+  .brand-btn:hover { opacity: 0.8; }
+  .icon-btn {
+    border: none; background: none; cursor: pointer;
+    border-radius: var(--radius-md); padding: 6px;
+    color: var(--text-muted); display: inline-flex;
+  }
+  .icon-btn:hover { background: var(--gray-200); color: var(--gray-700); }
+  .icon-btn--wide { width: 100%; justify-content: center; padding: 12px 0; border-radius: 0; }
+  .icon-btn--wide:hover { background: var(--surface-inset); }
+  .collapsed-icons { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+  .collapsed-icons .icon-btn { width: 40px; height: 40px; align-items: center; justify-content: center; }
+  .new-chat-btn {
+    display: flex; align-items: center; gap: 12px;
+    margin: 0 16px; padding: 12px 0;
+    border: none; background: none; cursor: pointer;
+    font-family: var(--font-sans); font-size: var(--text-sm); font-weight: 500;
+    color: var(--gray-700);
+  }
+  .new-chat-btn span { white-space: nowrap; }
+  .new-chat-btn:hover { opacity: 0.8; }
+  .sidebar-sep { margin: 8px 16px; border-bottom: 1px solid var(--gray-200); }
+  .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 8px; }
+  .sidebar-footer { flex-shrink: 0; border-top: 1px solid var(--gray-200); padding-top: 8px; }
+  .user-row { display: flex; align-items: center; gap: 10px; padding: 6px 16px 8px; }
+  .user-email { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---- Team page ---- */
+  .profile-scroll { flex: 1; min-height: 0; overflow-y: auto; background: var(--shell-bg); }
+  .profile-tab-idle:hover { background: rgba(255,255,255,0.7) !important; }
+  .row-hover:hover { background: var(--zinc-50); }
+  .sort-btn:hover { color: var(--zinc-700) !important; }
+  /* Responsive grids — mirror the repo's grid-cols-1 → md:2 → xl:4 behavior;
+     minmax(0,1fr) lets tracks shrink below min-content so cards never force
+     horizontal overflow. */
+  .mission-row { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 1180px) { .mission-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .mission-row { grid-template-columns: minmax(0, 1fr); } }
+  .triple-row { display: grid; gap: 24px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 1180px) { .triple-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 760px) { .triple-row { grid-template-columns: minmax(0, 1fr); } }
+  .ask-fab {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    z-index: 40;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    border-radius: 9999px;
+    padding: 0 18px;
+    border: none;
+    cursor: pointer;
+    background: var(--zinc-950);
+    color: #fff;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: var(--shadow-floating);
+  }
+  .ask-fab:hover { background: var(--zinc-800); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../sentrum_app/AppSidebar.jsx"></script>
+<script type="text/babel" src="TeamHeader.jsx"></script>
+<script type="text/babel" src="OverviewCards.jsx"></script>
+<script type="text/babel" src="OverviewCards2.jsx"></script>
+<script type="text/babel" src="SquadAndTable.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>

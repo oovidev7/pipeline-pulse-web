@@ -1,0 +1,80 @@
+import type { SquadAnalytics } from '@/lib/types/profiles'
+import { Eyebrow } from '@/components/profiles/player-v2/shared/Eyebrow'
+import { cn } from '@/lib/utils'
+
+interface AgeProfileCardProps {
+  analytics: SquadAnalytics
+}
+
+const BRACKET_ORDER = ['U21', '21-24', '25-28', '29-32', '33+'] as const
+
+export function AgeProfileCard({ analytics }: AgeProfileCardProps) {
+  const orderedBrackets = BRACKET_ORDER.map(b =>
+    analytics.ageDistribution.find(d => d.bracket === b)
+  ).filter((d): d is NonNullable<typeof d> => Boolean(d))
+
+  const totalPlayers = orderedBrackets.reduce((sum, b) => sum + b.count, 0)
+  const modalCount = orderedBrackets.length ? Math.max(...orderedBrackets.map(b => b.count)) : 0
+
+  const [intPart, decPart] = analytics.averageAge.toFixed(1).split('.')
+
+  return (
+    <section className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white p-4 transition-all hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+      <header className="mb-4 flex items-baseline justify-between">
+        <Eyebrow>Age Profile</Eyebrow>
+        <span className="font-mono text-[9px] font-semibold tracking-[0.18em] text-zinc-400 uppercase tabular-nums dark:text-zinc-500">
+          {totalPlayers} players
+        </span>
+      </header>
+
+      <div className="mb-5 flex items-baseline gap-1.5">
+        <span className="font-outfit text-4xl font-semibold tracking-[-0.02em] text-zinc-950 tabular-nums dark:text-zinc-100">
+          {intPart}
+        </span>
+        <span className="font-outfit text-2xl font-semibold tracking-[-0.01em] text-zinc-400 tabular-nums dark:text-zinc-600">
+          .{decPart}
+        </span>
+        <span className="ml-1 pb-1 text-[11px] font-medium tracking-wide text-zinc-500 dark:text-zinc-400">
+          avg age
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {orderedBrackets.map(entry => {
+          const isModal = entry.count === modalCount && modalCount > 0
+          return (
+            <div key={entry.bracket} className="flex items-center gap-3 text-xs">
+              <span
+                className={cn(
+                  'w-12 font-mono text-[10px] font-medium tracking-[0.04em] uppercase tabular-nums',
+                  isModal ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-400'
+                )}
+              >
+                {entry.bracket}
+              </span>
+              <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-[width] duration-500',
+                    isModal ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-700'
+                  )}
+                  style={{ width: `${entry.percentage}%` }}
+                />
+              </div>
+              <span
+                className={cn(
+                  'w-6 text-right font-mono tabular-nums',
+                  isModal
+                    ? 'font-semibold text-zinc-900 dark:text-zinc-100'
+                    : 'text-zinc-600 dark:text-zinc-400'
+                )}
+              >
+                {entry.count}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}

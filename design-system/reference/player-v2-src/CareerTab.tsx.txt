@@ -1,0 +1,721 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
+import { ChevronDown } from 'lucide-react'
+import { useTenantSafe } from '@/lib/context/tenant-context'
+import type {
+  PlayerCompetitionStats,
+  PlayerInjury,
+  PlayerTransfer,
+  MarketValueHistoryData,
+} from '@/lib/types/profiles'
+import { Eyebrow } from '../shared/Eyebrow'
+import { StatCard } from '../shared/StatCard'
+import { MarketValueChartV2 } from '../overview/MarketValueChartV2'
+
+export interface CareerClub {
+  fromIso: string
+  toIso: string | null // null = current
+  clubName: string
+  clubCrest: string | null
+  clubUuid: string | null // canonical teams.uuid — links the row to the club profile
+  type: 'first-team' | 'loan' | 'academy' | 'pre-academy'
+  feeDisplay: string | null
+  apps: number | null
+  goals: number | null
+  assists: number | null
+}
+
+export interface CareerTotals {
+  careerApps: number
+  careerMinutes: number
+  careerGoals: number
+  careerAssists: number
+  clubCount: number
+  youthClubCount?: number
+}
+
+interface CareerTabProps {
+  totals: CareerTotals
+  clubs: CareerClub[]
+  seasonStats: PlayerCompetitionStats[]
+  marketValueHistory: MarketValueHistoryData | null
+  injuries: PlayerInjury[]
+  transfers?: PlayerTransfer[]
+  currentSeasonCode?: string
+  /** True when player has no recorded injuries (or feature unavailable) */
+}
+
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+function formatYearRange(fromIso: string, toIso: string | null): string {
+  const from = new Date(fromIso).getUTCFullYear()
+  if (!toIso) return `${from} → now`
+  const to = new Date(toIso).getUTCFullYear()
+  if (from === to) return from.toString()
+  return `${from} → ${to}`
+}
+
+/**
+ * Tenant-scoped club profile path keyed by canonical `teams.uuid`, or null
+ * when the uuid is missing or we're rendered outside a tenant (e.g. the design
+ * preview). Returning null lets callers fall back to plain, unlinked text.
+ */
+function useClubHref(uuid: string | null | undefined): string | null {
+  const tenant = useTenantSafe()
+  return tenant && uuid ? `/${tenant.slug}/club/${uuid}` : null
+}
+
+function clubTypeLabel(type: CareerClub['type']): string {
+  if (type === 'first-team') return 'First team'
+  if (type === 'loan') return 'Loan'
+  if (type === 'academy') return 'Academy'
+  return 'Pre-academy'
+}
+
+/** Tier colors for the availability bar — emerald at the top end,
+ *  amber in the middle, red when a season was largely lost. */
+function availabilityTier(pct: number): { text: string; bar: string } {
+  if (pct >= 90) return { text: 'text-emerald-600', bar: 'bg-emerald-500' }
+  if (pct >= 75) return { text: 'text-emerald-700', bar: 'bg-emerald-400' }
+  if (pct >= 60) return { text: 'text-amber-600', bar: 'bg-amber-400' }
+  return { text: 'text-red-600', bar: 'bg-red-400' }
+}
+
+function formatInjuryDates(from: string, to: string | null): string {
+  const f = new Date(from)
+  const fDay = `${f.getUTCDate()} ${MONTH_SHORT[f.getUTCMonth()]}`
+  const fYear = f.getUTCFullYear()
+  if (!to) return `${fDay} ${fYear} → now`
+  const t = new Date(to)
+  const tDay = `${t.getUTCDate()} ${MONTH_SHORT[t.getUTCMonth()]}`
+  const tYear = t.getUTCFullYear()
+  // Same year → drop the from-year so the cell doesn't wrap. Cross-year
+  // injuries keep both years explicit so context is preserved.
+  if (fYear === tYear) return `${fDay} → ${tDay} ${tYear}`
+  return `${fDay} ${fYear} → ${tDay} ${tYear}`
+}
+
+/**
+ * Career tab — totals · club timeline · season-by-competition · market
+ * value (full) · injuries.
+ */
+export function CareerTab({
+  totals,
+  clubs,
+  seasonStats,
+  marketValueHistory,
+  injuries,
+  currentSeasonCode,
+}: CareerTabProps) {
+  const totalInjuryDays = injuries.reduce((sum, i) => sum + (i.daysOut ?? 0), 0)
+  const injurySpells = injuries.length
+  const avgDays = injurySpells > 0 ? Math.round(totalInjuryDays / injurySpells) : 0
+  const currentlyAvailable = injuries.every(i => i.toDate != null)
+
+  // Days missed per season. Seasons run Jul 1 → Jun 30 (365 days), so an
+  // injury starting in June falls in the previous season's bucket.
+  const daysBySeason = new Map<string, number>()
+  for (const injury of injuries) {
+    const d = new Date(injury.fromDate)
+    const year = d.getUTCFullYear()
+    // Month 6 = July (0-indexed). On/after July is the new season; before July
+    // belongs to the previous season.
+    const seasonStart = d.getUTCMonth() >= 6 ? year : year - 1
+    const seasonLabel = `${seasonStart}/${String((seasonStart + 1) % 100).padStart(2, '0')}`
+    daysBySeason.set(seasonLabel, (daysBySeason.get(seasonLabel) ?? 0) + (injury.daysOut ?? 0))
+  }
+  /** Days in a full season (Jul 1 → Jun 30). Drives the availability %. */
+  const SEASON_DAYS = 365
+
+  return (
+    <div className="space-y-6">
+      {/* Career totals strip */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        <Totals
+          label="Career apps"
+          value={totals.careerApps.toLocaleString()}
+          caption="all comps"
+        />
+        <Totals
+          label="Minutes"
+          value={totals.careerMinutes.toLocaleString()}
+          caption={
+            totals.careerApps > 0
+              ? `${Math.round(totals.careerMinutes / totals.careerApps)} / app`
+              : undefined
+          }
+        />
+        <Totals
+          label="Goals"
+          value={totals.careerGoals.toLocaleString()}
+          caption={
+            totals.careerMinutes > 0
+              ? `${((totals.careerGoals / totals.careerMinutes) * 90).toFixed(2)} / 90`
+              : undefined
+          }
+        />
+        <Totals
+          label="Assists"
+          value={totals.careerAssists.toLocaleString()}
+          caption={
+            totals.careerMinutes > 0
+              ? `${((totals.careerAssists / totals.careerMinutes) * 90).toFixed(2)} / 90`
+              : undefined
+          }
+        />
+        <Totals
+          label="Clubs"
+          value={totals.clubCount.toLocaleString()}
+          caption={totals.youthClubCount ? `+ ${totals.youthClubCount} youth` : undefined}
+        />
+      </div>
+
+      {/* Club timeline */}
+      <div>
+        <div className="mb-3">
+          <Eyebrow>Career timeline</Eyebrow>
+        </div>
+        <StatCard className="overflow-x-auto">
+          <div className="grid min-w-[760px] grid-cols-[110px_1fr_120px_110px_70px_60px_60px] items-center gap-3 border-b border-zinc-200 bg-zinc-50/60 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+            <Th>From — To</Th>
+            <Th>Club</Th>
+            <Th>Type</Th>
+            <Th align="right">Fee</Th>
+            <Th align="right">Apps</Th>
+            <Th align="right">G</Th>
+            <Th align="right">A</Th>
+          </div>
+          <div className="min-w-[760px] divide-y divide-zinc-100 dark:divide-zinc-800/50">
+            {clubs.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
+                No career data available
+              </div>
+            )}
+            {clubs.map((club, idx) => (
+              <ClubTimelineRow key={`${club.clubName}-${idx}`} club={club} />
+            ))}
+          </div>
+        </StatCard>
+      </div>
+
+      {/* Season-by-season */}
+      <SeasonByCompetitionTable seasonStats={seasonStats} currentSeasonCode={currentSeasonCode} />
+
+      {/* Market value (full width) */}
+      {marketValueHistory && (
+        <div>
+          <div className="mb-3">
+            <Eyebrow>Market value · full history</Eyebrow>
+          </div>
+          <MarketValueChartV2 data={marketValueHistory} />
+        </div>
+      )}
+
+      {/* Injuries */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <Eyebrow>Injury record</Eyebrow>
+          {injuries.length > 0 && (
+            <span
+              className={`rounded-sm border px-2 py-0.5 font-mono text-[10px] font-semibold ${
+                currentlyAvailable
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700'
+              }`}
+            >
+              {currentlyAvailable ? 'CURRENTLY AVAILABLE' : 'INJURED'}
+            </span>
+          )}
+        </div>
+        {injuries.length === 0 ? (
+          <StatCard className="p-6">
+            <div className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+              No recorded injuries.
+            </div>
+          </StatCard>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[2fr_3fr]">
+            <StatCard className="p-5">
+              <Eyebrow size="sm" dot={false} className="mb-4">
+                Availability by season
+              </Eyebrow>
+              <div className="space-y-4">
+                {Array.from(daysBySeason.entries())
+                  .sort(([a], [b]) => b.localeCompare(a))
+                  .map(([season, days]) => {
+                    const clampedDays = Math.min(days, SEASON_DAYS)
+                    const availablePct = ((SEASON_DAYS - clampedDays) / SEASON_DAYS) * 100
+                    const tier = availabilityTier(availablePct)
+                    return (
+                      <div key={season}>
+                        <div className="mb-1.5 flex items-baseline justify-between">
+                          <span className="font-mono text-[11px] tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+                            {season}
+                          </span>
+                          <div className="flex items-baseline gap-2">
+                            <span
+                              className={`font-outfit text-[15px] leading-none font-semibold tabular-nums ${tier.text}`}
+                            >
+                              {availablePct.toFixed(1)}%
+                            </span>
+                            <span className="font-mono text-[10px] tracking-widest text-zinc-400 uppercase dark:text-zinc-500">
+                              · {days}d out
+                            </span>
+                          </div>
+                        </div>
+                        {/* Split bar: emerald (available) growing from left,
+                            amber (injured) filling the remainder. Two rounded
+                            ends keep the bar visually whole rather than two
+                            rectangles abutted. */}
+                        <div className="relative h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                          <div
+                            className={`absolute inset-y-0 left-0 ${tier.bar}`}
+                            style={{ width: `${availablePct}%` }}
+                          />
+                          <div
+                            className="absolute inset-y-0 right-0 bg-amber-400/80"
+                            style={{ width: `${100 - availablePct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+              <div className="mt-5 grid grid-cols-3 gap-2 border-t border-zinc-100 pt-4 text-center dark:border-zinc-800/50">
+                <div>
+                  <Eyebrow size="sm" dot={false} className="justify-center">
+                    Total
+                  </Eyebrow>
+                  <div className="font-outfit mt-1 text-lg leading-none font-semibold tabular-nums">
+                    {totalInjuryDays}d
+                  </div>
+                </div>
+                <div>
+                  <Eyebrow size="sm" dot={false} className="justify-center">
+                    Spells
+                  </Eyebrow>
+                  <div className="font-outfit mt-1 text-lg leading-none font-semibold tabular-nums">
+                    {injurySpells}
+                  </div>
+                </div>
+                <div>
+                  <Eyebrow size="sm" dot={false} className="justify-center">
+                    Avg
+                  </Eyebrow>
+                  <div className="font-outfit mt-1 text-lg leading-none font-semibold tabular-nums">
+                    {avgDays}d
+                  </div>
+                </div>
+              </div>
+            </StatCard>
+            <StatCard className="overflow-hidden">
+              <div className="grid grid-cols-[210px_1fr_120px_70px_90px] items-center gap-4 border-b border-zinc-200 bg-zinc-50/60 px-5 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <Th>Dates</Th>
+                <Th>Type</Th>
+                <Th>Status</Th>
+                <Th align="right">Days</Th>
+                <Th align="right">Matches</Th>
+              </div>
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                {injuries.map((injury, idx) => (
+                  <div
+                    key={`${injury.fromDate}-${idx}`}
+                    className="grid grid-cols-[210px_1fr_120px_70px_90px] items-center gap-4 px-5 py-3"
+                  >
+                    <div className="font-mono text-xs whitespace-nowrap text-zinc-700 tabular-nums dark:text-zinc-300">
+                      {formatInjuryDates(injury.fromDate, injury.toDate)}
+                    </div>
+                    <div className="text-sm text-zinc-900 dark:text-zinc-100">{injury.injury}</div>
+                    <div>
+                      <span
+                        className={`rounded-sm border px-1.5 py-0.5 font-mono text-[9px] font-semibold ${
+                          injury.toDate
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : 'border-amber-200 bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {injury.toDate ? 'RECOVERED' : 'ACTIVE'}
+                      </span>
+                    </div>
+                    <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+                      {injury.daysOut ?? '—'}
+                    </div>
+                    <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+                      {injury.matchesMissed ?? '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </StatCard>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Totals({ label, value, caption }: { label: string; value: string; caption?: string }) {
+  return (
+    <StatCard className="px-4 py-3">
+      <Eyebrow size="sm" dot={false}>
+        {label}
+      </Eyebrow>
+      <div className="font-outfit mt-1 text-2xl leading-none font-semibold tabular-nums">
+        {value}
+      </div>
+      {caption && (
+        <div className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{caption}</div>
+      )}
+    </StatCard>
+  )
+}
+
+function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
+  return (
+    <div
+      className={`font-mono text-[9px] font-semibold tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400 ${
+        align === 'right' ? 'text-right' : ''
+      }`}
+    >
+      {children}
+    </div>
+  )
+}
+
+function ClubTimelineRow({ club }: { club: CareerClub }) {
+  const isCurrent = !club.toIso
+  const href = useClubHref(club.clubUuid)
+  const crest = club.clubCrest ? (
+    <Image
+      src={club.clubCrest}
+      alt=""
+      width={20}
+      height={20}
+      className="h-5 w-5 shrink-0 object-contain"
+      unoptimized
+    />
+  ) : (
+    <div className="h-5 w-5 shrink-0 rounded-full border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800" />
+  )
+  return (
+    <div className="grid grid-cols-[110px_1fr_120px_110px_70px_60px_60px] items-center gap-3 px-4 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50">
+      <div className="font-mono text-xs text-zinc-700 tabular-nums dark:text-zinc-300">
+        {formatYearRange(club.fromIso, club.toIso)}
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        {href ? (
+          <Link href={href} className="flex items-center gap-2 underline-offset-2 hover:underline">
+            {crest}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">{club.clubName}</span>
+          </Link>
+        ) : (
+          <span className="flex items-center gap-2">
+            {crest}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">{club.clubName}</span>
+          </span>
+        )}
+        {isCurrent && (
+          <span className="rounded-sm border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-emerald-700">
+            CURRENT
+          </span>
+        )}
+      </div>
+      <div className="text-sm text-zinc-700 dark:text-zinc-300">{clubTypeLabel(club.type)}</div>
+      <div className="text-right font-mono text-sm text-zinc-700 tabular-nums dark:text-zinc-300">
+        {club.feeDisplay ?? '—'}
+      </div>
+      <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+        {club.apps ?? '—'}
+      </div>
+      <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+        {club.goals ?? '—'}
+      </div>
+      <div className="text-right font-mono text-sm text-zinc-900 tabular-nums dark:text-zinc-100">
+        {club.assists ?? '—'}
+      </div>
+    </div>
+  )
+}
+
+function SeasonRow({ stat, highlight }: { stat: PlayerCompetitionStats; highlight: boolean }) {
+  const gaPer90 =
+    stat.minutes > 0 ? (((stat.goals + stat.assists) / stat.minutes) * 90).toFixed(2) : '—'
+  const clubHref = useClubHref(stat.teamUuid)
+  return (
+    <div
+      className={`grid grid-cols-[110px_1fr_1fr_70px_70px_60px_60px_60px_50px_50px] items-center gap-3 px-4 py-2.5 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50 ${
+        highlight ? 'bg-emerald-50/20' : ''
+      }`}
+    >
+      <div
+        className={`font-mono text-xs tabular-nums ${highlight ? 'font-semibold text-zinc-900 dark:text-zinc-100' : 'text-zinc-900 dark:text-zinc-100'}`}
+      >
+        {stat.season}
+      </div>
+      <div className="flex items-center gap-1.5 text-sm">
+        <span className="text-zinc-900 dark:text-zinc-100">{stat.competition}</span>
+      </div>
+      <div className="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+        {clubHref ? (
+          <Link
+            href={clubHref}
+            className="flex items-center gap-1.5 underline-offset-2 hover:underline"
+          >
+            {stat.teamCrest && (
+              <Image
+                src={stat.teamCrest}
+                alt=""
+                width={16}
+                height={16}
+                className="h-4 w-4 shrink-0 object-contain"
+                unoptimized
+              />
+            )}
+            <span>{stat.team}</span>
+          </Link>
+        ) : (
+          <>
+            {stat.teamCrest && (
+              <Image
+                src={stat.teamCrest}
+                alt=""
+                width={16}
+                height={16}
+                className="h-4 w-4 shrink-0 object-contain"
+                unoptimized
+              />
+            )}
+            <span>{stat.team}</span>
+          </>
+        )}
+      </div>
+      <div className="text-right font-mono text-sm tabular-nums">{stat.appearances}</div>
+      <div className="text-right font-mono text-sm tabular-nums">
+        {stat.minutes.toLocaleString()}
+      </div>
+      <div
+        className={`text-right font-mono text-sm tabular-nums ${stat.goals > 0 ? 'font-semibold text-emerald-600' : 'text-zinc-700 dark:text-zinc-300'}`}
+      >
+        {stat.goals}
+      </div>
+      <div
+        className={`text-right font-mono text-sm tabular-nums ${stat.assists > 0 ? 'font-semibold text-emerald-600' : 'text-zinc-700 dark:text-zinc-300'}`}
+      >
+        {stat.assists}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold tabular-nums">{gaPer90}</div>
+      <div className="text-right font-mono text-sm text-zinc-500 tabular-nums dark:text-zinc-400">
+        {stat.yellowCards ?? 0}
+      </div>
+      <div className="text-right font-mono text-sm text-zinc-500 tabular-nums dark:text-zinc-400">
+        {stat.redCards ?? 0}
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Season-by-season block: season filter + table + totals row
+// ────────────────────────────────────────────────────────────────────
+
+const SEASON_TABLE_COLS =
+  'grid min-w-[820px] grid-cols-[110px_1fr_1fr_70px_70px_60px_60px_60px_50px_50px] items-center gap-3'
+
+function SeasonByCompetitionTable({
+  seasonStats,
+  currentSeasonCode,
+}: {
+  seasonStats: PlayerCompetitionStats[]
+  currentSeasonCode: string | undefined
+}) {
+  // Distinct seasons, newest-first by seasonCode (string-comparable: "2025" > "2024").
+  const allSeasons = useMemo(() => {
+    const codes = Array.from(new Set(seasonStats.map(s => s.seasonCode)))
+      .sort()
+      .reverse()
+    // Build [{code, label}] so the dropdown reads "2025/26" not "2025"
+    return codes.map(code => {
+      const example = seasonStats.find(s => s.seasonCode === code)
+      return { code, label: example?.season ?? code }
+    })
+  }, [seasonStats])
+
+  // Default to the current season when it's in the data — that's what
+  // most scouts want to see first. Falls back to the newest season we
+  // have stats for, then 'all' as a last resort.
+  const [selected, setSelected] = useState<string>(() => {
+    if (currentSeasonCode && seasonStats.some(s => s.seasonCode === currentSeasonCode)) {
+      return currentSeasonCode
+    }
+    const newest = Array.from(new Set(seasonStats.map(s => s.seasonCode)))
+      .sort()
+      .reverse()[0]
+    return newest ?? 'all'
+  })
+
+  const filtered = useMemo(() => {
+    if (selected === 'all') return seasonStats
+    return seasonStats.filter(s => s.seasonCode === selected)
+  }, [seasonStats, selected])
+
+  const totals = useMemo(() => aggregateTotals(filtered), [filtered])
+
+  const subtitle =
+    selected === 'all'
+      ? 'All competitions'
+      : (allSeasons.find(s => s.code === selected)?.label ?? selected)
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <Eyebrow>Season-by-season · {subtitle}</Eyebrow>
+        {allSeasons.length > 1 && (
+          <SeasonFilter
+            value={selected}
+            onChange={setSelected}
+            options={[{ code: 'all', label: 'All seasons' }, ...allSeasons]}
+          />
+        )}
+      </div>
+      <StatCard className="overflow-x-auto">
+        <div
+          className={`${SEASON_TABLE_COLS} border-b border-zinc-200 bg-zinc-50/60 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/50`}
+        >
+          <Th>Season</Th>
+          <Th>Competition</Th>
+          <Th>Club</Th>
+          <Th align="right">Apps</Th>
+          <Th align="right">Mins</Th>
+          <Th align="right">G</Th>
+          <Th align="right">A</Th>
+          <Th align="right">G+A/90</Th>
+          <Th align="right">Y</Th>
+          <Th align="right">R</Th>
+        </div>
+        <div className="min-w-[820px] divide-y divide-zinc-100 dark:divide-zinc-800/50">
+          {filtered.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
+              No season statistics for this filter
+            </div>
+          ) : (
+            filtered.map((stat, idx) => (
+              <SeasonRow
+                key={`${stat.seasonCode}-${stat.competition}-${stat.team}-${idx}`}
+                stat={stat}
+                highlight={selected === 'all' && stat.seasonCode === currentSeasonCode}
+              />
+            ))
+          )}
+        </div>
+        {filtered.length > 0 && (
+          <SeasonTotalsRow
+            totals={totals}
+            label={selected === 'all' ? 'Career totals' : 'Totals'}
+          />
+        )}
+      </StatCard>
+    </div>
+  )
+}
+
+interface SeasonTotals {
+  apps: number
+  minutes: number
+  goals: number
+  assists: number
+  yellow: number
+  red: number
+}
+
+function aggregateTotals(rows: PlayerCompetitionStats[]): SeasonTotals {
+  return rows.reduce(
+    (acc, r) => ({
+      apps: acc.apps + (r.appearances ?? 0),
+      minutes: acc.minutes + (r.minutes ?? 0),
+      goals: acc.goals + (r.goals ?? 0),
+      assists: acc.assists + (r.assists ?? 0),
+      yellow: acc.yellow + (r.yellowCards ?? 0),
+      red: acc.red + (r.redCards ?? 0),
+    }),
+    { apps: 0, minutes: 0, goals: 0, assists: 0, yellow: 0, red: 0 }
+  )
+}
+
+function SeasonTotalsRow({ totals, label }: { totals: SeasonTotals; label: string }) {
+  const gaPer90 =
+    totals.minutes > 0 ? (((totals.goals + totals.assists) / totals.minutes) * 90).toFixed(2) : '—'
+  return (
+    <div
+      className={`${SEASON_TABLE_COLS} border-t border-zinc-200 bg-zinc-50/40 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40`}
+    >
+      {/* Label spans the first three columns (Season + Competition + Club) */}
+      <div className="col-span-3 font-mono text-[10px] tracking-[0.18em] text-zinc-500 uppercase dark:text-zinc-400">
+        {label}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+        {totals.apps}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+        {totals.minutes.toLocaleString()}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+        {totals.goals}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+        {totals.assists}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-950 tabular-nums dark:text-zinc-100">
+        {gaPer90}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">
+        {totals.yellow}
+      </div>
+      <div className="text-right font-mono text-sm font-semibold text-zinc-500 tabular-nums dark:text-zinc-400">
+        {totals.red}
+      </div>
+    </div>
+  )
+}
+
+function SeasonFilter({
+  value,
+  onChange,
+  options,
+}: {
+  value: string
+  onChange: (next: string) => void
+  options: { code: string; label: string }[]
+}) {
+  return (
+    <div className="relative inline-block">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="appearance-none rounded-md border border-zinc-200 bg-white py-1.5 pr-7 pl-3 font-mono text-[11px] tracking-wider text-zinc-700 uppercase hover:border-zinc-300 focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700"
+      >
+        {options.map(opt => (
+          <option key={opt.code} value={opt.code} className="font-sans normal-case">
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
+    </div>
+  )
+}

@@ -1,4 +1,5 @@
 import { DealRecord, StageBenchmark } from "./types";
+import { DealVisibility } from "./visibility";
 
 /**
  * Composite "needs you today" scoring. Each factor is a plain-English reason
@@ -7,12 +8,21 @@ import { DealRecord, StageBenchmark } from "./types";
  *
  * Weights are house rules, not statistics: contact problems and lapsed calls
  * outrank soft signals because they block any next step at all.
+ *
+ * Each weight has two parts: a base for *what* is wrong, and an escalation for
+ * *how long* it has been wrong (see `persisted`). Without the second part a
+ * deal that stalled in June scores exactly what it scored in May — which is
+ * why the labels counted up all week while the numbers sat still.
  */
 export interface RiskFactor {
   label: string;
   weight: number;
-  /** "risk" reads red; "opportunity" (a fresh buying signal) reads accent. */
-  kind: "risk" | "opportunity";
+  /**
+   * "risk" reads red; "opportunity" (a fresh buying signal) reads accent;
+   * "unknown" is a gap in what we can see, carries no weight, and must never
+   * be presented as a finding about the deal.
+   */
+  kind: "risk" | "opportunity" | "unknown";
 }
 
 export interface ScoredDeal {
@@ -32,6 +42,11 @@ export interface RiskInputs {
   /** Weekly research: a market signal matched this club, and how old it is. */
   signalDate?: string | null;
   benchmark?: StageBenchmark | null;
+  /**
+   * What we can actually see. Absent means the caller has no visibility data
+   * and the old email-only behaviour applies.
+   */
+  visibility?: DealVisibility | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -41,6 +56,25 @@ function daysSince(iso: string | null | undefined): number | null {
   const dt = new Date(iso);
   if (Number.isNaN(dt.getTime())) return null;
   return Math.max(0, Math.floor((Date.now() - dt.getTime()) / DAY_MS));
+}
+
+/**
+ * Extra weight for a problem that has *persisted*, given how far past its
+ * threshold it now is. One point per week overdue.
+ *
+ * Capped because ageing stops being informative: a deal untouched for six
+ * months is not twice the problem of one untouched for three, and without a
+ * ceiling a single ancient factor would swamp every other signal. Ten weeks is
+ * roughly where "needs chasing" becomes "needs closing out".
+ *
+ * Only time-based factors take this. Structural ones — no contacts linked, no
+ * call booked — have no clock to run: they are equally wrong on day one.
+ */
+const ESCALATION_CAP = 10;
+
+function persisted(daysOverdue: number | null): number {
+  if (daysOverdue === null || daysOverdue <= 0) return 0;
+  return Math.min(ESCALATION_CAP, Math.floor(daysOverdue / 7));
 }
 
 export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
@@ -78,27 +112,37 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
   const nextCallInPast =
     deal.nextCall !== null && new Date(deal.nextCall) < new Date();
   if (!inputs.hasUpcomingCall) {
-    if (nextCallInPast) add(`call lapsed ${nextCallDays}d ago`, 20);
+    // The lapse is overdue from the moment it passes, so its own age is the
+    // escalation clock — a call missed in June outranks one missed on Friday.
+    if (nextCallInPast) add(`call lapsed ${nextCallDays}d ago`, 20 + persisted(nextCallDays));
     else if (!deal.nextCall) add("no call booked", 12);
   }
 
-  // Email momentum. Gmail is the live signal but only covers the primary
-  // contact; Attio's per-person interaction log is the fallback and is what
-  // separates deals the mailbox search can't see.
+  // Momentum, measured across every channel we can see — not just email.
+  // Measuring email alone is what produced "silent 47 days" for a deal having
+  // weekly calls, so `visibility` (which folds in notes, WhatsApp and Attio's
+  // calendar sync) wins wherever it is available.
   const gmailQuiet = daysSince(inputs.lastContactDate);
   const attioQuiet = daysSince(deal.lastPersonInteraction);
-  const quietDays =
+  const emailQuiet =
     gmailQuiet === null ? attioQuiet : attioQuiet === null ? gmailQuiet : Math.min(gmailQuiet, attioQuiet);
+  const quietDays = inputs.visibility
+    ? inputs.visibility.daysSinceCapture
+    : emailQuiet;
 
-  if (quietDays === null) {
+  if (inputs.visibility?.state === "dark") {
+    // We cannot see this deal, so we cannot claim it has gone quiet. Carries no
+    // weight on purpose: it is a question for a human, not a finding.
+    add("no activity captured — needs a check", 0, "unknown");
+  } else if (quietDays === null) {
     // Nothing anywhere — only meaningful once we know someone was reachable.
     add(engaged > 0 ? "no email history" : "never contacted", 12);
   } else if (quietDays > 90) {
-    add(`cold ${Math.round(quietDays / 30)}mo`, 14);
+    add(`cold ${Math.round(quietDays / 30)}mo`, 14 + persisted(quietDays - 14));
   } else if (quietDays > 14) {
-    add(`quiet ${quietDays}d`, 12);
+    add(`quiet ${quietDays}d`, 12 + persisted(quietDays - 14));
   } else if (inputs.direction === "ours" && quietDays > 7) {
-    add(`awaiting reply ${quietDays}d`, 10);
+    add(`awaiting reply ${quietDays}d`, 10 + persisted(quietDays - 7));
   }
 
   // Velocity vs. the stage's own history. A median from fewer than 3
@@ -109,10 +153,13 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
       ? inputs.benchmark?.medianDaysToAdvance ?? null
       : null;
   if (dwell !== null && medianAdvance !== null && dwell > medianAdvance * 1.5) {
-    add(`${dwell}d in stage vs ${Math.round(medianAdvance)}d median`, 15);
+    add(
+      `${dwell}d in stage vs ${Math.round(medianAdvance)}d median`,
+      15 + persisted(dwell - medianAdvance * 1.5)
+    );
   } else if (dwell !== null && dwell > 30 && medianAdvance === null) {
     // Without a usable benchmark, a month-plus in one stage still deserves a flag.
-    add(`${dwell}d in stage`, 10);
+    add(`${dwell}d in stage`, 10 + persisted(dwell - 30));
   }
 
   if ((inputs.overdueTaskCount ?? 0) > 0) {

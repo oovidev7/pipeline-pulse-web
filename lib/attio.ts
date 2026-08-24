@@ -453,7 +453,20 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
   if (!forceRefresh && rawCache && Date.now() - rawCache.timestamp < CACHE_TTL_MS) {
     return rawCache.data;
   }
-  const data = forceRefresh ? await buildSnapshot() : await sharedSnapshot();
+  let data: AttioSnapshot;
+  if (forceRefresh) {
+    data = await buildSnapshot();
+  } else {
+    try {
+      data = await sharedSnapshot();
+    } catch (err: any) {
+      // unstable_cache only works inside the Next server. Scripts and tests
+      // call this module directly, and losing the shared layer there is fine —
+      // they were never sharing an instance with anyone anyway.
+      if (!String(err?.message).includes("incrementalCache")) throw err;
+      data = await buildSnapshot();
+    }
+  }
   rawCache = { data, timestamp: Date.now() };
   return data;
 }

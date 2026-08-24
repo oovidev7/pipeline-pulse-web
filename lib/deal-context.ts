@@ -47,6 +47,12 @@ function cachedFetch<T>(fetcher: () => Promise<T>, key: string) {
     if (inFlight) return inFlight;
 
     inFlight = load()
+      .catch((err: any) => {
+        // Outside the Next server (scripts, tests) unstable_cache has no
+        // backing store and throws; fall through to the raw fetch there.
+        if (!String(err?.message).includes("incrementalCache")) throw err;
+        return fetcher();
+      })
       .then((data) => {
         cache = { data, timestamp: Date.now() };
         return data;

@@ -65,6 +65,14 @@ export interface VisibilityInputs {
   lastCalendar?: string | null;
   /** Next calendar interaction across the deal's contacts, from Attio. */
   nextCalendar?: string | null;
+  /**
+   * Most recent meeting held with this deal's company, from Attio's meetings
+   * API. Distinct from `lastCalendar`, which only sees people linked as
+   * contacts — Copenhagen's trial calls run through someone who never was.
+   */
+  lastMeeting?: string | null;
+  /** Next meeting booked with this deal's company. */
+  nextMeeting?: string | null;
 }
 
 export function computeVisibility(
@@ -75,6 +83,7 @@ export function computeVisibility(
     { at: deal.lastPersonInteraction, channel: "email" },
     { at: inputs.gmailLastContact ?? null, channel: "email" },
     { at: inputs.lastCalendar ?? null, channel: "calendar" },
+    { at: inputs.lastMeeting ?? null, channel: "meeting" },
     { at: deal.lastWhatsappTouch, channel: "whatsapp" },
   ];
 
@@ -97,7 +106,9 @@ export function computeVisibility(
 
   // A booked meeting settles it: whatever email says, this deal is alive.
   const nextMeetingAt =
-    [deal.nextCall, inputs.nextCalendar ?? null].filter(isFuture).sort()[0] ?? null;
+    [deal.nextCall, inputs.nextCalendar ?? null, inputs.nextMeeting ?? null]
+      .filter(isFuture)
+      .sort()[0] ?? null;
 
   // `note` is Attio's free-text verdict field; `stallNotes` is ours. Either
   // means a human has said where this stands. Neither carries a timestamp, so

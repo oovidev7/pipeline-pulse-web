@@ -182,6 +182,26 @@ function strongerOf(a: string | null, b: string | null): string | null {
     : b;
 }
 
+export interface CompanyRecord {
+  id: string;
+  name: string;
+  /** ISO country code from `primary_location`, for grouping by market. */
+  countryCode: string | null;
+}
+
+/**
+ * Companies, kept for grouping deals and meetings by market. Location comes
+ * from Attio's enrichment rather than a club-name lookup table, which would
+ * break on the first ambiguous name and silently misfile it.
+ */
+function normalizeCompanies(records: any[]): CompanyRecord[] {
+  return records.map((record) => ({
+    id: record?.id?.record_id,
+    name: getAttrString(record, "name") || "Unknown",
+    countryCode: getAttrValue(record, "primary_location")?.country_code ?? null,
+  }));
+}
+
 /** Company id → primary email domain, from the companies object's `domains`. */
 function normalizeCompanyDomains(records: any[]): Map<string, string> {
   const out = new Map<string, string>();
@@ -253,6 +273,7 @@ function normalizePerson(record: any): PersonRecord {
 export interface AttioSnapshot {
   deals: DealRecord[];
   people: PersonRecord[];
+  companies: CompanyRecord[];
   members: WorkspaceMember[];
   /** Stage history per deal id. Empty when the history fetch failed. */
   stageHistory: Record<string, StageHistoryEntry[]>;
@@ -394,7 +415,13 @@ export async function getAttioSnapshot(forceRefresh = false): Promise<AttioSnaps
     };
   });
 
-  const data: AttioSnapshot = { deals, people, members, stageHistory };
+  const data: AttioSnapshot = {
+    deals,
+    people,
+    companies: normalizeCompanies(companyRecords),
+    members,
+    stageHistory,
+  };
   rawCache = { data, timestamp: Date.now() };
   return data;
 }

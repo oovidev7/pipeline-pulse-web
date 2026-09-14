@@ -133,7 +133,7 @@ export default function Agenda() {
     {
       label: "Conversations",
       key: "conversations",
-      help: "People who engaged with us this week outside of calls — LinkedIn and WhatsApp threads, logged notes.",
+      help: "Message threads where someone engaged with us — LinkedIn and WhatsApp. Calls are counted separately, and automated summaries count nowhere.",
     },
     {
       label: "Ecosystem meetings",

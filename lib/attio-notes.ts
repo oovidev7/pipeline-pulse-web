@@ -56,6 +56,18 @@ function isOutreachTrigger(title: string): boolean {
   return /^\s*LinkedIn outreach trigger/i.test(title);
 }
 
+/**
+ * Dated digests written by automations under a normal workspace seat —
+ * "Email commitments — 2026-09-11", "Market signals — 2026-09-07". They are
+ * reports *about* activity, not activity: counted as conversations they
+ * inflated the metric, and as "what was last said" they buried the actual
+ * last conversation under a summary of it. Kept in the timeline, but never
+ * treated as an exchange.
+ */
+function isGeneratedDigest(title: string): boolean {
+  return /^\s*(email commitments|market signals|call briefs?)\b/i.test(title);
+}
+
 function classify(title: string, hasMeeting: boolean): NoteChannel {
   if (hasMeeting) return "meeting";
   const t = title.toLowerCase();
@@ -132,14 +144,48 @@ export async function fetchNotes(): Promise<AttioNote[]> {
         channel: classify(title, Boolean(row?.meeting_id)),
         parentObject,
         parentRecordId,
-        human: !isOutreachTrigger(title),
+        human: !isOutreachTrigger(title) && !isGeneratedDigest(title),
       });
     }
 
     if (rows.length < PAGE) break;
   }
 
-  return out;
+  return dedupeCopies(out);
+}
+
+/**
+ * Which copy survives when the same note exists on several records. The deal
+ * copy attributes directly; a company copy still reaches the deal through the
+ * grouping; a person copy is the weakest anchor.
+ */
+const PARENT_RANK: Record<string, number> = { deals: 0, companies: 1, people: 2 };
+
+/**
+ * Granola (and tools like it) write the *same note once per related record* —
+ * one call produced seven "Portsmouth x Sentrum" notes across the deal, the
+ * company and each attendee. They have distinct ids, so id-level dedupe sails
+ * past them, and every copy counted as another conversation and another
+ * timeline entry. Collapse identical content from the same day to a single
+ * note, keeping the copy attached closest to the deal.
+ */
+function dedupeCopies(notes: AttioNote[]): AttioNote[] {
+  const best = new Map<string, AttioNote>();
+  for (const note of notes) {
+    const key = [
+      note.title.toLowerCase(),
+      note.excerpt.slice(0, 80).toLowerCase(),
+      note.createdAt.slice(0, 10),
+    ].join("|");
+    const held = best.get(key);
+    if (
+      !held ||
+      (PARENT_RANK[note.parentObject] ?? 9) < (PARENT_RANK[held.parentObject] ?? 9)
+    ) {
+      best.set(key, note);
+    }
+  }
+  return [...best.values()];
 }
 
 export interface DealNotes {

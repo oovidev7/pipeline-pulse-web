@@ -193,10 +193,15 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     );
   }
 
-  // Conversations: someone engaged with us. Meeting-channel notes are excluded
-  // because the meeting itself is already counted above.
+  // Conversations: message threads where someone engaged — LinkedIn and
+  // WhatsApp. Deliberately narrow: call write-ups are already counted as
+  // calls held (counting their notes again double-counts the same event),
+  // and generated digests are reports about activity, not activity.
   const conversationNotes = notes.filter(
-    (n) => n.human && n.channel !== "meeting" && n.createdAt >= since
+    (n) =>
+      n.human &&
+      (n.channel === "linkedin" || n.channel === "whatsapp") &&
+      n.createdAt >= since
   );
   for (const n of conversationNotes) {
     // The exchange itself rides along: a list of note titles says something

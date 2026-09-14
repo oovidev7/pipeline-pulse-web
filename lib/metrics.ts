@@ -193,15 +193,46 @@ export async function buildMetrics(weeksBack = 12): Promise<MetricsResponse> {
     );
   }
 
-  // Conversations: message threads where someone engaged — LinkedIn and
-  // WhatsApp. Deliberately narrow: call write-ups are already counted as
-  // calls held (counting their notes again double-counts the same event),
-  // and generated digests are reports about activity, not activity.
+  // Conversations: LinkedIn and WhatsApp threads, plus logged exchanges that
+  // never touched the calendar — WhatsApp calls, ad-hoc chats, a federation
+  // Danny rang. Only 3 of last week's 9 call write-ups had a calendar twin,
+  // so "notes duplicate the calls metric" was wrong for most of them.
+  //
+  // The one exclusion: a note for a deal that already has a *counted* client
+  // call within two days — that note is the write-up of an event already in
+  // the calls column, and counting both is counting the call twice.
+  const dealByRecord = new Map<string, string>();
+  for (const d of snapshot.deals) {
+    dealByRecord.set(d.id, d.id);
+    if (d.associatedCompanyId && !dealByRecord.has(d.associatedCompanyId)) {
+      dealByRecord.set(d.associatedCompanyId, d.id);
+    }
+    for (const pid of d.personIds) {
+      if (!dealByRecord.has(pid)) dealByRecord.set(pid, d.id);
+    }
+  }
+  const countedCallDates = new Map<string, number[]>();
+  for (const m of heldMeetings) {
+    if (m.kind !== "client" || !m.dealId) continue;
+    const arr = countedCallDates.get(m.dealId) ?? [];
+    arr.push(new Date(m.startsAt).getTime());
+    countedCallDates.set(m.dealId, arr);
+  }
+  const isCallWriteup = (n: { parentRecordId: string; createdAt: string }) => {
+    const dealId = dealByRecord.get(n.parentRecordId);
+    if (!dealId) return false;
+    const t = new Date(n.createdAt).getTime();
+    return (countedCallDates.get(dealId) ?? []).some(
+      (call) => Math.abs(call - t) <= 2 * 86_400_000
+    );
+  };
+
   const conversationNotes = notes.filter(
     (n) =>
       n.human &&
-      (n.channel === "linkedin" || n.channel === "whatsapp") &&
-      n.createdAt >= since
+      n.channel !== "meeting" &&
+      n.createdAt >= since &&
+      (n.channel === "linkedin" || n.channel === "whatsapp" || !isCallWriteup(n))
   );
   for (const n of conversationNotes) {
     // The exchange itself rides along: a list of note titles says something

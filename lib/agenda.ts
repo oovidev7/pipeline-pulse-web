@@ -20,6 +20,7 @@ import { RISK_ALERT_THRESHOLD } from "./alerts";
 import { CLOSED_STAGES, DealRecord } from "./types";
 import { DealVisibility } from "./visibility";
 import { AttioNote } from "./attio-notes";
+import { cleanSlackText, cleanSlackUrl } from "./slack-text";
 
 /** Deals put to the room. More than this and it stops being a meeting. */
 const MAX_DECISIONS = 5;
@@ -60,6 +61,16 @@ export interface UpcomingCall {
   brief: string | null;
 }
 
+export interface MarketSignal {
+  /** Club name, or null for industry-wide signals. */
+  club: string | null;
+  /** The matched open deal, when the club is in the pipeline. */
+  dealId: string | null;
+  text: string;
+  date: string | null;
+  url: string | null;
+}
+
 export interface StageRow {
   stage: string;
   count: number;
@@ -91,6 +102,8 @@ export interface Agenda {
   upcoming: UpcomingCall[];
   /** Open pipeline by stage — where the value actually sits. */
   stages: StageRow[];
+  /** This week's research signals, deal-linked where the club is in play. */
+  signals: MarketSignal[];
   cachedAt: string;
 }
 
@@ -171,7 +184,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v7";
+const AGENDA_CACHE_VERSION = "v8";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -200,6 +213,32 @@ export async function buildAgenda(): Promise<Agenda> {
 
   const signals: any[] = slack?.marketSignals?.signals ?? [];
   const open = deals.deals.filter((d) => !CLOSED_STAGES.includes(d.stage as any));
+
+  const dealByClub = new Map(open.map((d) => [clubOf(d.name), d.id]));
+  const signalsFresh: MarketSignal[] = signals
+    .filter((x: any) => {
+      const t = x?.source_date ? new Date(x.source_date).getTime() : NaN;
+      return Number.isFinite(t) && Date.now() - t <= 21 * 86_400_000;
+    })
+    .map((x: any) => {
+      const club = (x.club ?? "").trim();
+      const isIndustry = !club || /^industry$/i.test(club);
+      return {
+        club: isIndustry ? null : club,
+        dealId: isIndustry ? null : dealByClub.get(club.toLowerCase()) ?? null,
+        text: cleanSlackText(x.signal ?? ""),
+        date: x.source_date ?? null,
+        url: cleanSlackUrl(x.source_url) ?? null,
+      };
+    })
+    .filter((x: MarketSignal) => x.text)
+    // Pipeline clubs first, then the rest, newest first within each.
+    .sort(
+      (a: MarketSignal, b: MarketSignal) =>
+        Number(Boolean(b.dealId)) - Number(Boolean(a.dealId)) ||
+        (b.date ?? "").localeCompare(a.date ?? "")
+    )
+    .slice(0, 8);
 
   const scored = rankDeals(
     open.map((d) => {
@@ -359,6 +398,10 @@ export async function buildAgenda(): Promise<Agenda> {
     ].map((m) => ({ deal: m.deal, from: m.fromStage, to: m.toStage })),
     upcoming,
     stages,
+    // This week's research, cleaned of Slack markup and deal-linked where the
+    // club is in play. Fresh only: signals refresh each Monday, and stale ones
+    // reading as news is the exact failure the old section was deleted for.
+    signals: signalsFresh,
     cachedAt: new Date().toISOString(),
   };
 }

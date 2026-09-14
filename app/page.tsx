@@ -133,7 +133,7 @@ export default function Agenda() {
     {
       label: "Conversations",
       key: "conversations",
-      help: "Message threads where someone engaged with us — LinkedIn and WhatsApp. Calls are counted separately, and automated summaries count nowhere.",
+      help: "LinkedIn and WhatsApp threads, plus logged exchanges that never touched the calendar — WhatsApp calls, ad-hoc chats. A write-up of a call already counted in the calls columns isn't counted again, and automated summaries count nowhere.",
     },
     {
       label: "Ecosystem meetings",
@@ -413,6 +413,56 @@ export default function Agenda() {
           />
         ))}
       </section>
+
+      {/* ------------------------- market signals ------------------------ */}
+      {data.signals.length > 0 && (
+        <section>
+          <div className="eyebrow">
+            <span className="dot" />
+            <span>Market signals · this week's research</span>
+            <Help>
+              <p>
+                What the Monday research found moving in the market — sporting
+                director changes, vacancies, events. A signal on a pipeline
+                club links to its deal; the rest is industry context.
+              </p>
+              <p>
+                Signals older than three weeks drop off by themselves, so
+                nothing here is stale news wearing a fresh label.
+              </p>
+            </Help>
+          </div>
+          <div className="facts" style={{ marginTop: 12 }}>
+            {data.signals.map((sig, i) => (
+              <div className="fact" key={i}>
+                <span className="bullet" />
+                <span>
+                  {sig.dealId ? (
+                    <Link href={`/deal/${sig.dealId}`}><b>{sig.club}</b></Link>
+                  ) : (
+                    <b>{sig.club ?? "Industry"}</b>
+                  )}
+                  {" — "}
+                  {sig.text}
+                  {sig.date && (
+                    <span className="muted">
+                      {" "}· {new Date(sig.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  )}
+                  {sig.url && (
+                    <>
+                      {" · "}
+                      <a href={sig.url} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
+                        source
+                      </a>
+                    </>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ----------------------------- queue ----------------------------- */}
       {data.queue.length > 0 && (

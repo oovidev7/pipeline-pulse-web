@@ -21,6 +21,7 @@ import { CLOSED_STAGES, DealRecord } from "./types";
 import { DealVisibility } from "./visibility";
 import { AttioNote } from "./attio-notes";
 import { cleanSlackText, cleanSlackUrl } from "./slack-text";
+import { readHiddenCounterparts } from "./hidden";
 
 /** Deals put to the room. More than this and it stops being a meeting. */
 const MAX_DECISIONS = 5;
@@ -54,6 +55,7 @@ export interface UpcomingCall {
   title: string;
   /** The company Attio recognises on the invite, when there is no deal yet. */
   company: string | null;
+  companyId: string | null;
   deal: DealRecord | null;
   /** The standing verdict on the deal, as one line of context. */
   verdict: string | null;
@@ -184,7 +186,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v8";
+const AGENDA_CACHE_VERSION = "v9";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -203,12 +205,14 @@ export async function buildAgenda(): Promise<Agenda> {
   const gmailByDeal = new Map(
     (activity?.entries ?? []).map((e: any) => [e.dealId, e.lastContactDate ?? null])
   );
-  const [context, metrics, allMeetings, snapshot] = await Promise.all([
+  const [context, metrics, allMeetings, snapshot, hidden] = await Promise.all([
     getDealContext(gmailByDeal),
     buildMetrics(8).catch(() => null),
     getMeetings().catch(() => []),
     getAttioSnapshot(),
+    readHiddenCounterparts().catch(() => []),
   ]);
+  const hiddenCompanies = new Set(hidden.map((h) => h.companyId));
   const companyNameById = new Map(snapshot.companies.map((c) => [c.id, c.name]));
 
   const signals: any[] = slack?.marketSignals?.signals ?? [];
@@ -323,17 +327,22 @@ export async function buildAgenda(): Promise<Agenda> {
       const brief = club
         ? briefs.find((b: any) => (b.club || "").trim().toLowerCase() === club)
         : null;
+      const companyId = deal
+        ? null
+        : m.companyIds.find((c) => companyNameById.has(c)) ?? null;
       return {
         at: m.startsAt,
         title: m.title || "Call",
-        company: deal
-          ? null
-          : m.companyIds.map((c) => companyNameById.get(c)).find(Boolean) ?? null,
+        company: companyId ? companyNameById.get(companyId) ?? null : null,
+        companyId,
         deal,
         verdict: deal ? context.get(deal.id)?.visibility.verdict ?? null : null,
         brief: brief?.brief ?? null,
       };
-    });
+    })
+    // Dismissed counterparts stay dismissed — investors and funds someone has
+    // said are not sales. Pipeline deals can never be hidden this way.
+    .filter((c) => !c.companyId || !hiddenCompanies.has(c.companyId));
 
   // Where the value sits, stage by stage. A single open total flattens the
   // only distribution that matters: £45k in Trialling and £45k in Prospecting

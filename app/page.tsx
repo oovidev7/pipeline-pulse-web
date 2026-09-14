@@ -51,6 +51,8 @@ export default function Agenda() {
   const [openStat, setOpenStat] = useState<string | null>(null);
   /** Decisions taken in this session, so progress is visible as you go. */
   const [settled, setSettled] = useState<Record<string, string>>({});
+  /** Counterparts hidden this session, for instant feedback and undo. */
+  const [dismissed, setDismissed] = useState<Record<string, string>>({});
 
   const load = useCallback(async (bust = false) => {
     try {
@@ -83,6 +85,34 @@ export default function Agenda() {
       setError(err?.message || "Could not record that decision");
     } finally {
       setBusy(null);
+    }
+  };
+
+  const hideCounterpart = async (companyId: string, name: string, hide: boolean) => {
+    // Optimistic: the card reacts instantly, the server write follows. If the
+    // write fails, the card comes back with the error shown.
+    setDismissed((d) => {
+      const next = { ...d };
+      if (hide) next[companyId] = name;
+      else delete next[companyId];
+      return next;
+    });
+    try {
+      const res = await fetch("/api/hide-counterpart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, name, hide }),
+      });
+      const body = await res.json();
+      if (!res.ok || body?.error) throw new Error(body?.error || "Write failed");
+    } catch (err: any) {
+      setDismissed((d) => {
+        const next = { ...d };
+        if (hide) delete next[companyId];
+        else next[companyId] = name;
+        return next;
+      });
+      setError(err?.message || "Could not update");
     }
   };
 
@@ -301,7 +331,21 @@ export default function Agenda() {
               </p>
             </Help>
           </div>
-          {data.upcoming.map((c, i) => (
+          {data.upcoming.map((c, i) =>
+            c.companyId && dismissed[c.companyId] ? (
+              <div className="item done" key={i}>
+                <div className="item-sub">
+                  {dismissed[c.companyId]} hidden from Coming up — future calls with
+                  them won't show.{" "}
+                  <button
+                    className="qbtn"
+                    onClick={() => hideCounterpart(c.companyId!, c.company ?? "", false)}
+                  >
+                    Undo
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="item" key={i}>
               <div className="item-head">
                 <div>
@@ -349,8 +393,21 @@ export default function Agenda() {
                   {clamp(c.brief, 320)}
                 </div>
               )}
+              {/* Only counterparts without a deal can be removed — a pipeline
+                  call is never noise. Hiding is per company, permanently. */}
+              {!c.deal && c.companyId && c.company && (
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button
+                    className="qbtn"
+                    onClick={() => hideCounterpart(c.companyId!, c.company!, true)}
+                  >
+                    Remove — not a sales counterpart
+                  </button>
+                </div>
+              )}
             </div>
-          ))}
+            )
+          )}
         </section>
       )}
 

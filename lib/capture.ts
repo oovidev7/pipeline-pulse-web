@@ -19,6 +19,7 @@ import { attioFetch, getAttioSnapshot, invalidateCaches } from "./attio";
 import { getMeetings } from "./deal-context";
 import { fetchNotes } from "./attio-notes";
 import { AttioMeeting } from "./attio-meetings";
+import { readHiddenCounterparts } from "./hidden";
 
 /** Wait this long after a call ends before asking — Granola gets first go. */
 const MIN_AGE_HOURS = 3;
@@ -491,7 +492,12 @@ async function postProposals(
   const channel = teamChannel();
   if (!channel) return;
 
-  const [snapshot, meetings] = await Promise.all([getAttioSnapshot(), getMeetings()]);
+  const [snapshot, meetings, hidden] = await Promise.all([
+    getAttioSnapshot(),
+    getMeetings(),
+    readHiddenCounterparts().catch(() => []),
+  ]);
+  const hiddenCompanies = new Set(hidden.map((h) => h.companyId));
   const hasDeal = new Set(
     snapshot.deals.map((d) => d.associatedCompanyId).filter(Boolean) as string[]
   );
@@ -506,6 +512,9 @@ async function postProposals(
     if (m.kind !== "ecosystem" || m.startsAt <= now || m.startsAt > weekAhead) continue;
     const companyId = m.companyIds.find((c) => companyName.has(c) && !hasDeal.has(c));
     if (!companyId || state.proposals[companyId]) continue;
+    // A counterpart someone dismissed from Coming up is not a prospect —
+    // proposing a deal for them would be the same noise through another door.
+    if (hiddenCompanies.has(companyId)) continue;
 
     const name = companyName.get(companyId)!;
     const day = new Date(m.startsAt).toLocaleDateString("en-GB", {

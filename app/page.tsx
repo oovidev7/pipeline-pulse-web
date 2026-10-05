@@ -170,6 +170,19 @@ export default function Agenda() {
   }
   if (!data) return <div className="panel"><div className="loading">Loading the week…</div></div>;
 
+  const conv = data.conversations;
+  const convNow = conv?.weeks.find((w) => w.week === data.period.from) ?? null;
+  const convBefore = conv?.weeks.find(
+    (w) => w.week === new Date(new Date(data.period.from).getTime() - 7 * 86_400_000).toISOString().slice(0, 10)
+  ) ?? null;
+  // New conversations by source over the last four complete weeks.
+  const recentWeeks = (conv?.weeks ?? []).filter((w) => w.week < data.period.to).slice(-4);
+  const newBySource: Record<string, number> = {};
+  for (const w of recentWeeks) {
+    for (const [src, n] of Object.entries(w.newBySource)) newBySource[src] = (newBySource[src] ?? 0) + n;
+  }
+  const sourceRows = Object.entries(newBySource).sort((a, b) => b[1] - a[1]);
+  const maxSource = Math.max(1, ...sourceRows.map(([, n]) => n));
   const cur = data.current;
   const prev = data.previous;
   const b = data.breakdown;
@@ -226,10 +239,18 @@ export default function Agenda() {
         {
           key: "conversations",
           label: "Conversations",
-          value: cur.conversations,
-          delta: diff(cur.conversations, prev?.conversations),
-          items: b?.conversations ?? [],
-          help: "LinkedIn and WhatsApp threads, plus logged exchanges that never touched the calendar. A write-up of a call already counted isn't counted again, and automation notes — digests, the outbound agent's state — count nowhere.",
+          value: convNow?.people ?? 0,
+          sub: convNow ? `${convNow.newPeople} new · people at clubs` : "people at clubs",
+          delta: convNow ? diff(convNow.people, convBefore?.people ?? 0) : null,
+          items: (conv?.people[data.period.from] ?? []).map((p) => ({
+            label: `${p.name} — ${p.club} · ${p.channels.join(" + ")}${p.isNew ? " · new" : ""}`,
+            at: p.at,
+            dealId: p.dealId,
+            excerpt: null,
+          })),
+          help:
+            "People at clubs who talked with us last week, on any channel — an email from them, a LinkedIn or WhatsApp exchange, a call, or a logged conversation. Each person counts once, however many channels. Outreach nobody answered, automated sends and digests count nowhere. New = the first conversation with that person in the last 12 weeks." +
+            (conv && !conv.emailConnected ? " Email isn't in this count yet: the Attio key needs the Emails read scope." : ""),
         },
         {
           key: "active",
@@ -646,6 +667,104 @@ export default function Agenda() {
           </p>
         )}
       </section>
+
+      {/* --------------------------- prospecting -------------------------- */}
+      {conv && (
+        <section>
+          <div className="eyebrow">
+            <span className="dot" />
+            <span>Prospecting · conversations and what comes of them</span>
+            <Help>
+              <p>
+                <b>New conversations by source</b> — people at clubs we talked
+                with for the first time in the last four weeks, by how their
+                club’s deal started (or “No deal yet”). Where fresh
+                conversations come from.
+              </p>
+              <p>
+                <b>Conversation → call</b> — clubs whose first conversation was
+                4–8 weeks ago, and how many had a call within 30 days of it.
+                Recent weeks are left out until their 30 days have run.
+              </p>
+              <p>
+                <b>People engaged per deal</b> — open deals by how many people
+                at the club talked with us in the last 30 days. Won deals
+                typically have three or more people involved on the club’s
+                side; a late-stage deal on one contact is exposed.
+              </p>
+            </Help>
+          </div>
+          {!conv.emailConnected && (
+            <p className="note">
+              Email isn’t counted yet — the Attio API key needs the <b>Emails: read</b> scope
+              (Workspace settings → Developers → the Pipeline Pulse key). Until then these
+              numbers are calls, LinkedIn, WhatsApp and logged notes only.
+            </p>
+          )}
+
+          <div className="group-label">New conversations by source · last 4 weeks</div>
+          {sourceRows.length === 0 ? (
+            <p className="note">No new conversations in the last four weeks.</p>
+          ) : (
+            <div className="bars">
+              {sourceRows.map(([src, n]) => (
+                <div className="bar-row" key={src}>
+                  <div className="bar-name">{src}</div>
+                  <div className="bar-track" aria-hidden="true">
+                    <span className="bar-open bar-solid" style={{ width: `${(n / maxSource) * 100}%` }} />
+                  </div>
+                  <div className="bar-text">{n} {n === 1 ? "person" : "people"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="group-label">Conversation → call · within 30 days</div>
+          {conv.conversion.clubs === 0 ? (
+            <p className="note">No clubs had a first conversation 4–8 weeks ago.</p>
+          ) : (
+            <p className="note" style={{ marginTop: 4 }}>
+              <b>{conv.conversion.converted} of {conv.conversion.clubs} clubs</b> whose first
+              conversation was 4–8 weeks ago had a call within 30 days.{" "}
+              <span className="muted">
+                {conv.conversion.weeks
+                  .map((w) => `w/c ${new Date(w.week).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}: ${w.converted} of ${w.clubs}`)
+                  .join(" · ")}
+              </span>
+            </p>
+          )}
+
+          <div className="group-label">People engaged per open deal · last 30 days</div>
+          <div className="engaged-chips">
+            {([
+              ["none", conv.engagedPerDeal.distribution.zero],
+              ["1 person", conv.engagedPerDeal.distribution.one],
+              ["2 people", conv.engagedPerDeal.distribution.two],
+              ["3+ people", conv.engagedPerDeal.distribution.threePlus],
+            ] as const).map(([label, n]) => (
+              <div className="engaged-chip" key={label}>
+                <div className="engaged-n">{n}</div>
+                <div className="engaged-label">{label}</div>
+              </div>
+            ))}
+          </div>
+          {conv.engagedPerDeal.thin.length > 0 && (
+            <p className="note">
+              <b>Late-stage deals on one contact or none:</b>{" "}
+              {conv.engagedPerDeal.thin.map((t, i) => (
+                <span key={t.dealId}>
+                  {i > 0 && ", "}
+                  <Link href={`/deal/${t.dealId}`} style={{ textDecoration: "underline" }}>
+                    {t.deal.replace(/\s+[-–]\s+.*$/, "")}
+                  </Link>{" "}
+                  <span className="muted">({t.stage}, {t.people})</span>
+                </span>
+              ))}
+              .
+            </p>
+          )}
+        </section>
+      )}
 
       {/* --------------------------- decisions --------------------------- */}
       <section>

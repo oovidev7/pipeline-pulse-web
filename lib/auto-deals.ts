@@ -86,7 +86,8 @@ interface InboundEmail {
  */
 async function recentInboundEmail(): Promise<InboundEmail[]> {
   const out: InboundEmail[] = [];
-  for (const account of getConfiguredGoogleAccounts()) {
+  // All inboxes at once — the capture cron shares a 60s budget.
+  await Promise.all(getConfiguredGoogleAccounts().map(async (account) => {
     try {
       const token = await getAccessToken(account);
       const gmail = async (path: string) => {
@@ -102,6 +103,11 @@ async function recentInboundEmail(): Promise<InboundEmail[]> {
         return res.json();
       };
       const profile = await gmail("/profile");
+      // The outreach inbox is known by its variable as well as its address
+      // (danny@sentrum.ai reports itself as danny@gingersambasports.com).
+      const address = String(profile?.emailAddress ?? "").toLowerCase() || null;
+      const mailbox =
+        account.key === "outreach" || isOutreachMailbox(address) ? outreachMailbox().address : address;
       const q = `newer_than:${EMAIL_LOOKBACK_DAYS}d -from:me -category:promotions -category:social`;
       const list = await gmail(`/messages?q=${encodeURIComponent(q)}&maxResults=50`);
       const headerParams = ["From", "Subject", ...AUTO_REPLY_HEADERS]
@@ -125,14 +131,14 @@ async function recentInboundEmail(): Promise<InboundEmail[]> {
           from,
           at: new Date(Number(msg?.internalDate ?? Date.now())).toISOString(),
           subject: header("subject"),
-          mailbox: profile?.emailAddress?.toLowerCase() ?? null,
+          mailbox,
         });
       }
     } catch (err: any) {
       // One mailbox failing must not stop the calendar half of the job.
       console.error(`[auto-deals] gmail ${account.key}:`, err?.message);
     }
-  }
+  }));
   return out;
 }
 

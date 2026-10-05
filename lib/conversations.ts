@@ -259,76 +259,96 @@ async function fetchInboundGmail(
   for (let i = 0; i < clubDomains.length; i += GMAIL_DOMAINS_PER_QUERY) {
     chunks.push(clubDomains.slice(i, i + GMAIL_DOMAINS_PER_QUERY));
   }
+  const headerParams = ["From", "Subject", ...AUTO_REPLY_HEADERS]
+    .map((h) => `metadataHeaders=${h}`)
+    .join("&");
+
+  // Each inbox is read on its own, all at once: one after another, three
+  // inboxes ran a refresh past half of Vercel's 60-second limit.
+  const reads = await Promise.all(
+    getConfiguredGoogleAccounts().map(async (account) => {
+      try {
+        const token = await getAccessToken(account);
+        const gmail = async (path: string) => {
+          const res = await withTimeout(
+            fetch(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
+              headers: { Authorization: `Bearer ${token}` },
+              cache: "no-store",
+            }),
+            10_000,
+            "gmail"
+          );
+          if (!res.ok) throw new Error(`Gmail ${res.status}`);
+          return res.json();
+        };
+        const profile = await gmail("/profile");
+        const address = String(profile?.emailAddress ?? "").toLowerCase();
+        // The outreach inbox is known by its variable as well as its address:
+        // danny@sentrum.ai signs in as danny@gingersambasports.com.
+        const outreach = account.key === "outreach" || isOutreachMailbox(address);
+
+        const ids: string[] = [];
+        for (const chunk of chunks) {
+          const q = `after:${after} -from:me from:(${chunk.join(" OR ")})`;
+          let pageToken: string | undefined;
+          for (let page = 0; page < 10; page++) {
+            const list = await gmail(
+              `/messages?q=${encodeURIComponent(q)}&maxResults=500${pageToken ? `&pageToken=${pageToken}` : ""}`
+            );
+            for (const m of list?.messages ?? []) ids.push(m.id);
+            pageToken = list?.nextPageToken;
+            if (!pageToken) break;
+          }
+        }
+        const headers = await runWithConcurrency(ids, 8, async (id) => {
+          const msg = await gmail(`/messages/${id}?format=metadata&${headerParams}`);
+          const header = (name: string) =>
+            msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === name)?.value ?? "";
+          const from = (header("from").match(/<([^>]+)>/)?.[1] ?? header("from")).trim().toLowerCase();
+          // Out-of-office replies and bounces are not conversations.
+          if (isAutoReply(header, from)) return null;
+          return { from, at: new Date(Number(msg?.internalDate ?? 0)).toISOString() };
+        });
+        return { account, address, outreach, headers, error: null as unknown };
+      } catch (err: any) {
+        console.error(`[conversations] gmail ${account.key}:`, err?.message);
+        return { account, address: "", outreach: false, headers: [], error: err as unknown };
+      }
+    })
+  );
+
   const emails: InboundEmail[] = [];
   const mailboxes: string[] = [];
   const failed: string[] = [];
+  const addresses = new Set<string>();
   const seen = new Map<string, InboundEmail>();
-  for (const account of getConfiguredGoogleAccounts()) {
-    try {
-      const token = await getAccessToken(account);
-      const gmail = async (path: string) => {
-        const res = await withTimeout(
-          fetch(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          }),
-          10_000,
-          "gmail"
-        );
-        if (!res.ok) throw new Error(`Gmail ${res.status}`);
-        return res.json();
-      };
-      const profile = await gmail("/profile");
-      const mailbox = String(profile?.emailAddress ?? "").toLowerCase();
-      // Two tokens for the same inbox: read it once.
-      if (!mailbox || mailboxes.includes(mailbox)) continue;
-      mailboxes.push(mailbox);
-
-      const ids: string[] = [];
-      for (const chunk of chunks) {
-        const q = `after:${after} -from:me from:(${chunk.join(" OR ")})`;
-        let pageToken: string | undefined;
-        for (let page = 0; page < 10; page++) {
-          const list = await gmail(
-            `/messages?q=${encodeURIComponent(q)}&maxResults=500${pageToken ? `&pageToken=${pageToken}` : ""}`
-          );
-          for (const m of list?.messages ?? []) ids.push(m.id);
-          pageToken = list?.nextPageToken;
-          if (!pageToken) break;
-        }
+  for (const r of reads) {
+    const name =
+      r.account.key === "default" ? "GOOGLE_REFRESH_TOKEN" : `GOOGLE_REFRESH_TOKEN_${r.account.key.toUpperCase()}`;
+    if (r.error) {
+      failed.push(`${name}: ${explainGoogleError(r.error)}`);
+      continue;
+    }
+    // Two tokens for the same inbox: count it once.
+    if (!r.address || addresses.has(r.address)) continue;
+    addresses.add(r.address);
+    mailboxes.push(r.outreach ? `${r.address} (outreach)` : r.address);
+    // Outreach rows carry the canonical outreach address, so everything
+    // downstream recognises them whatever the account's own address is.
+    const mailbox = r.outreach ? outreachMailbox().address : r.address;
+    for (const h of r.headers) {
+      if (!h?.from?.includes("@")) continue;
+      // One email reaching several inboxes is one email — but if any copy
+      // reached the outreach inbox, it is an outreach reply.
+      const key = `${h.from}|${h.at.slice(0, 16)}`;
+      const prior = seen.get(key);
+      if (prior) {
+        if (r.outreach) prior.mailbox = mailbox;
+        continue;
       }
-
-      const headerParams = ["From", "Subject", ...AUTO_REPLY_HEADERS]
-        .map((h) => `metadataHeaders=${h}`)
-        .join("&");
-      const headers = await runWithConcurrency(ids, 8, async (id) => {
-        const msg = await gmail(`/messages/${id}?format=metadata&${headerParams}`);
-        const header = (name: string) =>
-          msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === name)?.value ?? "";
-        const from = (header("from").match(/<([^>]+)>/)?.[1] ?? header("from")).trim().toLowerCase();
-        // Out-of-office replies and bounces are not conversations.
-        if (isAutoReply(header, from)) return null;
-        return { from, at: new Date(Number(msg?.internalDate ?? 0)).toISOString() };
-      });
-      for (const h of headers) {
-        if (!h?.from?.includes("@")) continue;
-        // One email reaching several inboxes is one email — but if any copy
-        // reached the outreach inbox, it is an outreach reply.
-        const key = `${h.from}|${h.at.slice(0, 16)}`;
-        const prior = seen.get(key);
-        if (prior) {
-          if (isOutreachMailbox(mailbox)) prior.mailbox = mailbox;
-          continue;
-        }
-        const row: InboundEmail = { at: h.at, from: h.from, companyIds: [], mailbox };
-        seen.set(key, row);
-        emails.push(row);
-      }
-    } catch (err: any) {
-      console.error(`[conversations] gmail ${account.key}:`, err?.message);
-      const name =
-        account.key === "default" ? "GOOGLE_REFRESH_TOKEN" : `GOOGLE_REFRESH_TOKEN_${account.key.toUpperCase()}`;
-      failed.push(`${name}: ${explainGoogleError(err)}`);
+      const row: InboundEmail = { at: h.at, from: h.from, companyIds: [], mailbox };
+      seen.set(key, row);
+      emails.push(row);
     }
   }
   return { emails, mailboxes, failed };
@@ -353,7 +373,7 @@ export async function inboundEmail(since: string, clubDomains: string[]): Promis
 
 /** Cached for an hour: a lookback of email is many requests, and it moves slowly. */
 const cachedInboundEmail = (since: string, clubDomains: string[]) =>
-  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v5", since.slice(0, 13)], {
+  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v6", since.slice(0, 13)], {
     revalidate: 3600,
     tags: ["inbound-email"],
   })();

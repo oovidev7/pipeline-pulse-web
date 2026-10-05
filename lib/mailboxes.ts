@@ -31,8 +31,21 @@ export function outreachMailbox(): OutreachMailbox {
   };
 }
 
+/**
+ * Every address the outreach inbox goes by. danny@sentrum.ai is an alias on
+ * the danny@gingersambasports.com account — Gmail reports the latter as the
+ * inbox's own address. Extra aliases: OUTREACH_ALIASES (comma-separated).
+ */
+export function outreachAddresses(): string[] {
+  const extra = (process.env.OUTREACH_ALIASES ?? "")
+    .split(",")
+    .map((a) => a.trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set([outreachMailbox().address, "danny@gingersambasports.com", ...extra])];
+}
+
 export function isOutreachMailbox(address: string | null | undefined): boolean {
-  return Boolean(address) && address!.toLowerCase() === outreachMailbox().address;
+  return Boolean(address) && outreachAddresses().includes(address!.toLowerCase());
 }
 
 /** Headers to request from Gmail so auto-generated mail can be recognised. */

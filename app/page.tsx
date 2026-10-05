@@ -576,9 +576,10 @@ export default function Agenda() {
               mostly zeros.
             </p>
             <p>
-              Country comes from the club’s company record in Attio. League and
-              tier would be the sharper cut (“7 of 24 Championship clubs”), but
-              Attio has no field for them yet.
+              Country comes from the club’s company record in Attio. League is
+              the sharper cut (“7 of 24 Championship clubs”); Attio’s League
+              field covers about two-thirds of open deals so far, so it isn’t
+              the chart yet.
             </p>
           </Help>
         </div>

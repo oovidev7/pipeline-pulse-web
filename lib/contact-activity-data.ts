@@ -105,8 +105,20 @@ async function computeContactActivity(): Promise<ContactActivityResponse> {
   if (accounts.length === 0) {
     return { cachedAt: new Date().toISOString(), entries: [], followUpsNeeded: [] };
   }
-  const account = accounts[0];
-  const accessToken = await getAccessToken(account);
+  // First token that still works: a stale named token used to take the whole
+  // feature down while a working one sat unused further down the list.
+  let accessToken: string | null = null;
+  for (const account of accounts) {
+    try {
+      accessToken = await getAccessToken(account);
+      break;
+    } catch (err: any) {
+      console.error(`[contact-activity] google ${account.key}:`, err?.message);
+    }
+  }
+  if (!accessToken) {
+    return { cachedAt: new Date().toISOString(), entries: [], followUpsNeeded: [] };
+  }
 
   const dealsData = await getComputedDealsResponse();
 

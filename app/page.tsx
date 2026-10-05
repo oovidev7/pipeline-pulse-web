@@ -256,7 +256,7 @@ export default function Agenda() {
           sub: convNow ? `${convNow.newPeople} new · people at clubs` : "people at clubs",
           delta: convNow ? diff(convNow.people, convBefore?.people ?? 0) : null,
           items: (conv?.people[data.period.from] ?? []).map((p) => ({
-            label: `${p.name} — ${p.club} · ${p.channels.join(" + ")}${p.isNew ? " · new" : ""}`,
+            label: `${p.name} — ${p.club} · ${p.channels.join(" + ")}${p.viaOutreach ? " (outreach inbox)" : ""}${p.isNew ? " · new" : ""}`,
             at: p.at,
             dealId: p.dealId,
             excerpt: null,
@@ -704,6 +704,13 @@ export default function Agenda() {
                 Recent weeks are left out until their 30 days have run.
               </p>
               <p>
+                <b>Outbound</b> — the founder-led outreach test: every club the
+                outbound agent is working from the outreach inbox, with touches
+                sent, drafts still waiting for approval in Slack, and whether a
+                reply or a call followed the first send. A reply to that inbox
+                also shows as “Outreach” under source.
+              </p>
+              <p>
                 <b>People engaged per deal</b> — open deals by how many people
                 at the club talked with us in the last 30 days. Won deals
                 typically have three or more people involved on the club’s
@@ -762,7 +769,10 @@ export default function Agenda() {
                               <span>
                                 <b>{p.name}</b> — {p.dealId ? <Link href={`/deal/${p.dealId}`}>{p.club}</Link> : p.club}
                               </span>
-                              <span className="muted">{p.channels.join(" + ")}</span>
+                              <span className="muted">
+                                {p.channels.join(" + ")}
+                                {p.viaOutreach ? " · outreach inbox" : ""}
+                              </span>
                             </div>
                           ))}
                       </div>
@@ -801,6 +811,87 @@ export default function Agenda() {
                       </span>
                     </div>
                   ))}
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="group-label">Outbound · {conv.outbound.mailbox}</div>
+          {conv.outbound.failed !== 0 && (
+            <p className="note">
+              {conv.outbound.failed < 0
+                ? "The outbound agent’s records couldn’t be read just now — refresh to try again."
+                : `${conv.outbound.failed} club${conv.outbound.failed === 1 ? "’s" : "s’"} outbound record couldn’t be read, so ${conv.outbound.failed === 1 ? "it isn’t" : "they aren’t"} in these numbers.`}
+            </p>
+          )}
+          {conv.outbound.clubs.length === 0 ? (
+            conv.outbound.failed === 0 && <p className="note">The outbound agent isn’t working any clubs yet.</p>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="note linkish"
+                style={{ marginTop: 4 }}
+                onClick={() => toggleProspect("outbound")}
+                aria-expanded={openProspect === "outbound"}
+              >
+                <b>{conv.outbound.clubs.length} clubs</b> in sequence
+                {conv.outbound.addedLast7Days > 0 && ` (${conv.outbound.addedLast7Days} added in the last 7 days)`} ·{" "}
+                {conv.outbound.awaitingApproval > 0 && (
+                  <><b>{conv.outbound.awaitingApproval} drafts waiting for approval</b> in Slack · </>
+                )}
+                {conv.outbound.sentLast7Days} sent in the last 7 days · {conv.outbound.replied} replied ·{" "}
+                {conv.outbound.calls} reached a call{" "}
+                <span className="bar-chevron">{openProspect === "outbound" ? "▴ hide" : "▾ show clubs"}</span>
+              </button>
+              {conv.outbound.cohorts.length > 0 && (
+                <p className="note" style={{ marginTop: 4 }}>
+                  <span className="muted">By week of first send: </span>
+                  {conv.outbound.cohorts
+                    .map(
+                      (w) =>
+                        `w/c ${new Date(w.week).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}: ${w.replied} of ${w.clubs} replied, ${w.calls} call${w.calls === 1 ? "" : "s"}`
+                    )
+                    .join(" · ")}
+                </p>
+              )}
+              {openProspect === "outbound" && (
+                <div className="where-deals flush">
+                  {conv.outbound.clubs.slice(0, OUTBOUND_SHOWN).map((c, i) => (
+                    <div className="convo-row" key={i}>
+                      <span className={`where-dot ${c.repliedAt ? "on" : ""}`} title={c.repliedAt ? "Replied" : "No reply yet"} />
+                      <span>
+                        <b>{c.dealId ? <Link href={`/deal/${c.dealId}`}>{c.club}</Link> : c.club}</b>
+                        {c.contact && <span className="muted"> — {c.contact}</span>}
+                      </span>
+                      <span className="muted">
+                        {c.channels.join("/") || "—"} · {c.touchesSent} of {c.touchesPlanned} sent
+                        {c.awaitingApproval ? " · draft awaiting approval" : ""}
+                        {c.repliedAt
+                          ? ` · replied ${new Date(c.repliedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                          : ""}
+                        {c.callAt
+                          ? ` · call ${new Date(c.callAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                          : ""}
+                      </span>
+                    </div>
+                  ))}
+                  {conv.outbound.clubs.length > OUTBOUND_SHOWN && (
+                    <div className="muted">
+                      +{conv.outbound.clubs.length - OUTBOUND_SHOWN} more
+                      {(() => {
+                        const rest = conv.outbound.clubs.slice(OUTBOUND_SHOWN);
+                        const waiting = rest.filter((c) => c.awaitingApproval).length;
+                        const replied = rest.filter((c) => c.repliedAt).length;
+                        const parts = [
+                          waiting && `${waiting} with drafts waiting`,
+                          replied && `${replied} replied`,
+                        ].filter(Boolean);
+                        return parts.length ? ` (${parts.join(", ")})` : " with no reply yet";
+                      })()}
+                      .
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -1173,6 +1264,12 @@ const COUNTRY = (() => {
     return null;
   }
 })();
+
+/**
+ * The outbound list keeps growing; the drill-down shows the clubs that need
+ * attention — replied, drafts waiting, most recently sent — and counts the rest.
+ */
+const OUTBOUND_SHOWN = 20;
 
 interface WhereRowData {
   key: string;

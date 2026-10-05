@@ -101,7 +101,9 @@ async function fetchLastMessageForEmail(
 }
 
 async function computeContactActivity(): Promise<ContactActivityResponse> {
-  const accounts = getConfiguredGoogleAccounts();
+  // Last-contact data is about our own relationships, so the shared outreach
+  // inbox is never the one read here.
+  const accounts = getConfiguredGoogleAccounts().filter((a) => a.key !== "outreach");
   if (accounts.length === 0) {
     return { cachedAt: new Date().toISOString(), entries: [], followUpsNeeded: [] };
   }

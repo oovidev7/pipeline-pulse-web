@@ -30,6 +30,7 @@ import {
 } from "./mailboxes";
 import { getOutboundStates, OutboundRead } from "./outbound";
 import {
+  explainGoogleError,
   getAccessToken,
   getConfiguredGoogleAccounts,
   runWithConcurrency,
@@ -325,9 +326,9 @@ async function fetchInboundGmail(
       }
     } catch (err: any) {
       console.error(`[conversations] gmail ${account.key}:`, err?.message);
-      failed.push(
-        account.key === "default" ? "GOOGLE_REFRESH_TOKEN" : `GOOGLE_REFRESH_TOKEN_${account.key.toUpperCase()}`
-      );
+      const name =
+        account.key === "default" ? "GOOGLE_REFRESH_TOKEN" : `GOOGLE_REFRESH_TOKEN_${account.key.toUpperCase()}`;
+      failed.push(`${name}: ${explainGoogleError(err)}`);
     }
   }
   return { emails, mailboxes, failed };

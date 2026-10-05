@@ -28,8 +28,13 @@ export interface DealRecord {
   stageEnteredAt: string | null;
   /**
    * Earliest upcoming calendar event with any of this deal's contacts, from
-   * Attio's calendar sync. Not the retired `next_call` field, which nobody
-   * kept current: 14 of its 15 dates were in the past.
+   * the people's `next_calendar_interaction`. Not the retired `next_call`
+   * field, which nobody kept current: 14 of its 15 dates were in the past.
+   *
+   * As of 2026-10-05 Attio returns that attribute empty to this app's API key
+   * (0 of 2,560 people), so this is usually null. Whether a call is booked is
+   * decided by `DealVisibility.nextMeetingAt`, which also reads Attio's
+   * meetings — the dashboard, deal page and alerts all use that.
    */
   nextCall: string | null;
   personIds: string[];

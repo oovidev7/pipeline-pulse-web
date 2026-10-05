@@ -403,7 +403,8 @@ async function buildSnapshot(): Promise<AttioSnapshot> {
       null
     );
     // The next call is whatever is actually in the calendar, not a date
-    // someone typed into the deal and never updated.
+    // someone typed into the deal and never updated. Often null: see the
+    // note on DealRecord.nextCall.
     const nowIso = new Date().toISOString();
     const nextCall = contacts.reduce<string | null>((soonest, p) => {
       const at = p.nextCalendarInteraction;

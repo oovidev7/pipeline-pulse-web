@@ -26,15 +26,26 @@ export interface GoogleAccount {
 /** Returns the list of configured Google accounts based on env vars. */
 export function getConfiguredGoogleAccounts(): GoogleAccount[] {
   const accounts: GoogleAccount[] = [];
-  if (process.env.GOOGLE_REFRESH_TOKEN_OGI) {
-    accounts.push({ key: "ogi", refreshToken: process.env.GOOGLE_REFRESH_TOKEN_OGI });
-  }
-  if (process.env.GOOGLE_REFRESH_TOKEN_DANNY) {
-    accounts.push({ key: "danny", refreshToken: process.env.GOOGLE_REFRESH_TOKEN_DANNY });
-  }
-  const plain = process.env.GOOGLE_REFRESH_TOKEN;
-  if (plain && !accounts.some((a) => a.refreshToken === plain)) {
-    accounts.push({ key: "default", refreshToken: plain });
+  // Any GOOGLE_REFRESH_TOKEN_<NAME> is an inbox: OGI, DANNY, OUTREACH (the
+  // shared danny@sentrum.ai), and whatever comes next — a new mailbox is one
+  // Vercel variable, not a code change. Sorted so the order is stable.
+  // Order matters to callers that read one inbox (contact activity): Ogi's,
+  // then the plain token, then Danny's, then anything else alphabetically —
+  // so adding an inbox never changes which one they read.
+  const others = Object.keys(process.env)
+    .filter(
+      (k) =>
+        k.startsWith("GOOGLE_REFRESH_TOKEN_") &&
+        k !== "GOOGLE_REFRESH_TOKEN_OGI" &&
+        k !== "GOOGLE_REFRESH_TOKEN_DANNY"
+    )
+    .sort();
+  const order = ["GOOGLE_REFRESH_TOKEN_OGI", "GOOGLE_REFRESH_TOKEN", "GOOGLE_REFRESH_TOKEN_DANNY", ...others];
+  for (const k of order) {
+    const refreshToken = process.env[k];
+    if (!refreshToken || accounts.some((a) => a.refreshToken === refreshToken)) continue;
+    const key = k === "GOOGLE_REFRESH_TOKEN" ? "default" : k.slice("GOOGLE_REFRESH_TOKEN_".length).toLowerCase();
+    accounts.push({ key, refreshToken });
   }
   return accounts;
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildAgenda, getAgenda } from "@/lib/agenda";
+import { revalidateTag } from "next/cache";
 import { invalidateNotesCache } from "@/lib/deal-context";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,13 @@ export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const bust = req.nextUrl.searchParams.has("refresh");
-  if (bust) invalidateNotesCache();
+  if (bust) {
+    invalidateNotesCache();
+    // "Refresh" should mean the outreach numbers too, not an hour-old copy.
+    for (const tag of ["outbound-states", "inbound-email"]) {
+      try { revalidateTag(tag); } catch { /* outside a request scope */ }
+    }
+  }
   try {
     // "?refresh=1" must actually rebuild, not hand back the copy it was asked
     // to bypass.

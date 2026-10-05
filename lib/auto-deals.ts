@@ -15,8 +15,14 @@ import { attioFetch, getAttioSnapshot, invalidateCaches, AttioSnapshot } from ".
 import { getMeetings } from "./deal-context";
 import { AttioMeeting } from "./attio-meetings";
 import { readHiddenCounterparts } from "./hidden";
-import { getAccessToken, getConfiguredGoogleAccounts, withTimeout } from "./google-auth";
+import {
+  getAccessToken,
+  getConfiguredGoogleAccounts,
+  runWithConcurrency,
+  withTimeout,
+} from "./google-auth";
 import { CLOSED_STAGES } from "./types";
+import { AUTO_REPLY_HEADERS, isAutoReply, isOutreachMailbox, outreachMailbox } from "./mailboxes";
 
 const DAY_MS = 86_400_000;
 /** Calls this far back still count: a call held yesterday is as good as one booked. */
@@ -38,6 +44,8 @@ export interface AutoDealCandidate {
   ownerId: string | null;
   ownerName: string | null;
   personIds: string[];
+  /** Deal Source, when the signal settles it (a reply to the outreach inbox). */
+  source: string | null;
   /** One line for Slack: what made this a deal. */
   reason: string;
 }
@@ -96,14 +104,23 @@ async function recentInboundEmail(): Promise<InboundEmail[]> {
       const profile = await gmail("/profile");
       const q = `newer_than:${EMAIL_LOOKBACK_DAYS}d -from:me -category:promotions -category:social`;
       const list = await gmail(`/messages?q=${encodeURIComponent(q)}&maxResults=50`);
-      for (const { id } of list?.messages ?? []) {
-        const msg = await gmail(
-          `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`
-        );
+      const headerParams = ["From", "Subject", ...AUTO_REPLY_HEADERS]
+        .map((h) => `metadataHeaders=${h}`)
+        .join("&");
+      // Several at a time: the capture cron shares a 60s budget with everything else.
+      const msgs = await runWithConcurrency(
+        (list?.messages ?? []).map((m: any) => m.id as string),
+        8,
+        (id) => gmail(`/messages/${id}?format=metadata&${headerParams}`)
+      );
+      for (const msg of msgs) {
+        if (!msg) continue;
         const header = (name: string) =>
           msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === name)?.value ?? "";
         const from = (header("from").match(/<([^>]+)>/)?.[1] ?? header("from")).trim().toLowerCase();
         if (!from.includes("@")) continue;
+        // An out-of-office is not a club talking to us.
+        if (isAutoReply(header, from)) continue;
         out.push({
           from,
           at: new Date(Number(msg?.internalDate ?? Date.now())).toISOString(),
@@ -220,6 +237,7 @@ export async function findAutoDeals(options?: {
       personIds: m.externalEmails
         .map((e) => personByEmail.get(e.toLowerCase()))
         .filter((id): id is string => Boolean(id)),
+      source: null,
       reason: `${m.startsAt > nowIso ? "call booked" : "call held"} ${fmt(m.startsAt)} — ${m.title.trim() || "call"}`,
     });
   }
@@ -228,7 +246,10 @@ export async function findAutoDeals(options?: {
     const clubId = companyForEmail(e.from, clubByDomain);
     const club = clubId ? clubs.get(clubId) : undefined;
     if (!club || found.has(club.id)) continue;
-    const who = owner([e.mailbox]);
+    // A reply to the outreach inbox is cold outreach working: owned by whoever
+    // runs that inbox, sourced Email.
+    const viaOutreach = isOutreachMailbox(e.mailbox);
+    const who = owner([viaOutreach ? outreachMailbox().ownerEmail : e.mailbox]);
     const person = personByEmail.get(e.from);
     found.set(club.id, {
       companyId: club.id,
@@ -239,7 +260,8 @@ export async function findAutoDeals(options?: {
       ownerId: who.id,
       ownerName: who.name,
       personIds: person ? [person] : [],
-      reason: `email from ${e.from} ${fmt(e.at)}${e.subject ? ` — “${e.subject.slice(0, 80)}”` : ""}`,
+      source: viaOutreach ? outreachMailbox().source : null,
+      reason: `${viaOutreach ? `reply to ${outreachMailbox().address}` : "email"} from ${e.from} ${fmt(e.at)}${e.subject ? ` — “${e.subject.slice(0, 80)}”` : ""}`,
     });
   }
 
@@ -267,6 +289,7 @@ export async function createAutoDeals(): Promise<AutoDealRun> {
               stage: c.stage,
               owner: [{ referenced_actor_type: "workspace-member", referenced_actor_id: c.ownerId }],
               associated_company: [{ target_object: "companies", target_record_id: c.companyId }],
+              ...(c.source && { source: c.source }),
               ...(c.personIds.length && {
                 associated_people: c.personIds.map((id) => ({
                   target_object: "people",

@@ -22,6 +22,14 @@ import { fetchNotes } from "./attio-notes";
 import { getMeetings } from "./deal-context";
 import { CLOSED_STAGES } from "./types";
 import {
+  AUTO_REPLY_HEADERS,
+  isAutoReply,
+  isAutoReplySubject,
+  isOutreachMailbox,
+  outreachMailbox,
+} from "./mailboxes";
+import { getOutboundStates, OutboundRead } from "./outbound";
+import {
   getAccessToken,
   getConfiguredGoogleAccounts,
   runWithConcurrency,
@@ -44,6 +52,8 @@ interface Event {
   companyId: string;
   at: string;
   channel: ConversationChannel;
+  /** Arrived in the outreach inbox (danny@sentrum.ai). */
+  outreach: boolean;
 }
 
 export interface ConversationPerson {
@@ -53,9 +63,31 @@ export interface ConversationPerson {
   /** First conversation with this person in the lookback window. */
   isNew: boolean;
   dealId: string | null;
-  /** How the club's deal started, or "No deal yet". */
+  /** How the club's deal started, "Outreach" for a reply to the outreach inbox, or "No deal yet". */
   source: string;
+  /** Any of this week's exchanges came in through the outreach inbox. */
+  viaOutreach: boolean;
   at: string;
+}
+
+/** One club the outbound agent is working, judged on what came of it. */
+export interface OutboundClub {
+  club: string;
+  dealId: string | null;
+  contact: string | null;
+  status: string;
+  channels: string[];
+  touchesPlanned: number;
+  touchesSent: number;
+  /** The newest touch is drafted but not yet approved in Slack. */
+  awaitingApproval: boolean;
+  lastSentAt: string | null;
+  /** First reply after the first send — the agent's record, or a conversation we saw. */
+  repliedAt: string | null;
+  /** First call after the first send. */
+  callAt: string | null;
+  firstSentAt: string | null;
+  addedAt: string | null;
 }
 
 export interface ConversionClub {
@@ -110,6 +142,23 @@ export interface ConversationReport {
     /** Every club in those weeks, so the count opens into names. */
     list: ConversionClub[];
   };
+  /** The founder-led outreach test: the outbound agent's clubs and what came of them. */
+  outbound: {
+    mailbox: string;
+    clubs: OutboundClub[];
+    awaitingApproval: number;
+    sentLast7Days: number;
+    addedLast7Days: number;
+    replied: number;
+    calls: number;
+    /** Clubs on the agent's list whose state couldn't be read. */
+    failed: number;
+    /**
+     * Clubs grouped by the week of their first send, and what followed — the
+     * read that stays honest as the list grows. Newest week first.
+     */
+    cohorts: { week: string; clubs: number; replied: number; calls: number }[];
+  };
   /** Open deals by people engaged in the last 30 days. */
   engagedPerDeal: {
     distribution: { zero: number; one: number; two: number; threePlus: number };
@@ -143,6 +192,8 @@ interface InboundEmail {
   at: string;
   from: string;
   companyIds: string[];
+  /** The inbox it arrived in, where known. */
+  mailbox?: string;
 }
 
 /**
@@ -168,12 +219,16 @@ async function fetchInboundEmail(since: string): Promise<InboundEmail[] | null> 
       throw err;
     }
     for (const e of body?.data ?? []) {
-      if (e?.direction !== "inbound") continue;
+      if (e?.direction !== "inbound" || isAutoReplySubject(e?.subject_line)) continue;
       const from = (e.participants ?? []).find((p: any) => p.role === "from")?.email_address;
       if (!from) continue;
+      const toOutreach = (e.participants ?? []).some(
+        (p: any) => (p.role === "to" || p.role === "cc") && isOutreachMailbox(p.email_address)
+      );
       out.push({
         at: e.sent_at,
         from: String(from).toLowerCase(),
+        mailbox: toOutreach ? outreachMailbox().address : undefined,
         companyIds: (e.linked_records ?? [])
           .filter((r: any) => r.object_slug === "companies")
           .map((r: any) => r.record_id),
@@ -206,7 +261,7 @@ async function fetchInboundGmail(
   const emails: InboundEmail[] = [];
   const mailboxes: string[] = [];
   const failed: string[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, InboundEmail>();
   for (const account of getConfiguredGoogleAccounts()) {
     try {
       const token = await getAccessToken(account);
@@ -242,19 +297,31 @@ async function fetchInboundGmail(
         }
       }
 
+      const headerParams = ["From", "Subject", ...AUTO_REPLY_HEADERS]
+        .map((h) => `metadataHeaders=${h}`)
+        .join("&");
       const headers = await runWithConcurrency(ids, 8, async (id) => {
-        const msg = await gmail(`/messages/${id}?format=metadata&metadataHeaders=From`);
-        const raw = msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === "from")?.value ?? "";
-        const from = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase();
+        const msg = await gmail(`/messages/${id}?format=metadata&${headerParams}`);
+        const header = (name: string) =>
+          msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === name)?.value ?? "";
+        const from = (header("from").match(/<([^>]+)>/)?.[1] ?? header("from")).trim().toLowerCase();
+        // Out-of-office replies and bounces are not conversations.
+        if (isAutoReply(header, from)) return null;
         return { from, at: new Date(Number(msg?.internalDate ?? 0)).toISOString() };
       });
       for (const h of headers) {
         if (!h?.from?.includes("@")) continue;
-        // One email reaching both founders is one email.
+        // One email reaching several inboxes is one email — but if any copy
+        // reached the outreach inbox, it is an outreach reply.
         const key = `${h.from}|${h.at.slice(0, 16)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        emails.push({ at: h.at, from: h.from, companyIds: [] });
+        const prior = seen.get(key);
+        if (prior) {
+          if (isOutreachMailbox(mailbox)) prior.mailbox = mailbox;
+          continue;
+        }
+        const row: InboundEmail = { at: h.at, from: h.from, companyIds: [], mailbox };
+        seen.set(key, row);
+        emails.push(row);
       }
     } catch (err: any) {
       console.error(`[conversations] gmail ${account.key}:`, err?.message);
@@ -285,7 +352,7 @@ export async function inboundEmail(since: string, clubDomains: string[]): Promis
 
 /** Cached for an hour: a lookback of email is many requests, and it moves slowly. */
 const cachedInboundEmail = (since: string, clubDomains: string[]) =>
-  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v3", since.slice(0, 13)], {
+  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v5", since.slice(0, 13)], {
     revalidate: 3600,
     tags: ["inbound-email"],
   })();
@@ -295,10 +362,14 @@ export async function buildConversations(): Promise<ConversationReport> {
   const since = new Date(weekOf(new Date(now.getTime() - LOOKBACK_WEEKS * 7 * DAY_MS).toISOString())).toISOString();
   const nowIso = now.toISOString();
 
-  const [snapshot, notes, meetings] = await Promise.all([
+  const [snapshot, notes, meetings, outboundStates] = await Promise.all([
     getAttioSnapshot(),
     fetchNotes(),
     getMeetings().catch(() => []),
+    getOutboundStates().catch((err): OutboundRead => {
+      console.error("[conversations] outbound", err?.message ?? err);
+      return { states: [], failed: -1 };
+    }),
   ]);
 
   // Clubs, plus any company we have a deal with — multi-club groups like Bay
@@ -334,7 +405,13 @@ export async function buildConversations(): Promise<ConversationReport> {
   const email = feed.kind === "none" ? null : feed.emails;
 
   const events: Event[] = [];
-  const add = (personId: string | null, companyId: string | null | undefined, at: string, channel: ConversationChannel) => {
+  const add = (
+    personId: string | null,
+    companyId: string | null | undefined,
+    at: string,
+    channel: ConversationChannel,
+    outreach = false
+  ) => {
     if (!companyId || !clubs.has(companyId) || at < since || at > nowIso) return;
     events.push({
       key: personId ? `person:${personId}` : `club:${companyId}`,
@@ -342,6 +419,7 @@ export async function buildConversations(): Promise<ConversationReport> {
       companyId,
       at,
       channel,
+      outreach,
     });
   };
 
@@ -351,7 +429,7 @@ export async function buildConversations(): Promise<ConversationReport> {
       person?.companyId ??
       e.companyIds.find((id) => clubs.has(id)) ??
       clubForDomain(e.from.split("@")[1] ?? "");
-    add(person?.id ?? null, companyId, e.at, "email");
+    add(person?.id ?? null, companyId, e.at, "email", isOutreachMailbox(e.mailbox));
   }
 
   // A write-up of a call is the call, which the calendar already counts. The
@@ -423,12 +501,16 @@ export async function buildConversations(): Promise<ConversationReport> {
 
   // Weekly roll-up. A club-level exchange only counts when no named person at
   // that club already did that week — otherwise one call is two "people".
-  const byWeek = new Map<string, Map<string, { e: Event; channels: Set<ConversationChannel>; first: string }>>();
+  const byWeek = new Map<
+    string,
+    Map<string, { e: Event; channels: Set<ConversationChannel>; first: string; outreach: boolean }>
+  >();
   for (const e of sorted) {
     const w = weekOf(e.at);
     const bucket = byWeek.get(w) ?? new Map();
-    const row = bucket.get(e.key) ?? { e, channels: new Set<ConversationChannel>(), first: e.at };
+    const row = bucket.get(e.key) ?? { e, channels: new Set<ConversationChannel>(), first: e.at, outreach: false };
     row.channels.add(e.channel);
+    if (e.outreach) row.outreach = true;
     bucket.set(e.key, row);
     byWeek.set(w, bucket);
   }
@@ -445,7 +527,13 @@ export async function buildConversations(): Promise<ConversationReport> {
     people[w] = rows.map((r) => {
       for (const c of r.channels) byChannel[c] += 1;
       const deal = clubDeal(r.e.companyId);
-      const source = deal ? deal.source ?? "Not recorded" : "No deal yet";
+      const ob = outreachMailbox();
+      const source =
+        r.outreach && (!deal || deal.source === ob.source)
+          ? ob.label
+          : deal
+            ? deal.source ?? "Not recorded"
+            : "No deal yet";
       bySource[source] = (bySource[source] ?? 0) + 1;
       const isNew = weekOf(firstByKey.get(r.e.key)!) === w;
       if (isNew) {
@@ -460,6 +548,7 @@ export async function buildConversations(): Promise<ConversationReport> {
         isNew,
         dealId: deal?.id ?? null,
         source,
+        viaOutreach: r.outreach,
         at: r.first,
       };
     });
@@ -503,6 +592,51 @@ export async function buildConversations(): Promise<ConversationReport> {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([week, r]) => ({ week, ...r }));
 
+  // The outreach test: each club the outbound agent works, judged on what came
+  // after its first send. The agent's own reply/meeting record wins; otherwise
+  // a conversation or call we saw after that send counts.
+  const sevenDaysAgo = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+  let sentLast7Days = 0;
+  const outboundClubs: OutboundClub[] = outboundStates.states.map((st) => {
+    const sent = st.touches
+      .filter((t) => t.sentAt)
+      .sort((a, b) => a.sentAt!.localeCompare(b.sentAt!));
+    sentLast7Days += sent.filter((t) => t.sentAt! >= sevenDaysAgo).length;
+    const firstSent = sent[0]?.sentAt ?? null;
+    const newest = [...st.touches].sort((a, b) => b.n - a.n)[0];
+    const seenReply = firstSent
+      ? sorted.find((e) => e.companyId === st.companyId && e.channel !== "call" && e.at >= firstSent)?.at ?? null
+      : null;
+    const seenCall = firstSent
+      ? (callsByClub.get(st.companyId) ?? []).filter((at) => at >= firstSent && at <= nowIso).sort()[0] ?? null
+      : null;
+    return {
+      club: st.club,
+      dealId: clubDeal(st.companyId)?.id ?? null,
+      contact: st.contactName ? `${st.contactName}${st.contactRole ? `, ${st.contactRole}` : ""}` : null,
+      status: st.status,
+      channels: [...new Set(st.channelPlan)],
+      touchesPlanned: st.channelPlan.length,
+      touchesSent: sent.length,
+      awaitingApproval: Boolean(newest?.draftedAt && !newest.approvedAt && !newest.sentAt),
+      lastSentAt: sent[sent.length - 1]?.sentAt ?? null,
+      repliedAt: st.repliedAt ?? seenReply,
+      callAt: st.meetingAt ?? seenCall,
+      firstSentAt: firstSent,
+      addedAt: st.addedAt,
+    };
+  });
+  const cohortRows = new Map<string, { clubs: number; replied: number; calls: number }>();
+  for (const c of outboundClubs) {
+    if (!c.firstSentAt) continue;
+    const w = weekOf(c.firstSentAt);
+    const row = cohortRows.get(w) ?? { clubs: 0, replied: 0, calls: 0 };
+    row.clubs += 1;
+    if (c.repliedAt) row.replied += 1;
+    if (c.callAt) row.calls += 1;
+    cohortRows.set(w, row);
+  }
+
   // People engaged per open deal, last 30 days.
   const engagedSince = new Date(now.getTime() - ENGAGED_DAYS * DAY_MS).toISOString();
   const engagedByClub = new Map<string, Set<string>>();
@@ -544,6 +678,26 @@ export async function buildConversations(): Promise<ConversationReport> {
       clubs: conversionWeeks.reduce((t, r) => t + r.clubs, 0),
       converted: conversionWeeks.reduce((t, r) => t + r.converted, 0),
       list: conversionList.sort((a, b) => a.firstAt.localeCompare(b.firstAt)),
+    },
+    outbound: {
+      mailbox: outreachMailbox().address,
+      clubs: outboundClubs.sort(
+        (a, b) =>
+          Number(Boolean(b.repliedAt)) - Number(Boolean(a.repliedAt)) ||
+          Number(b.awaitingApproval) - Number(a.awaitingApproval) ||
+          (b.lastSentAt ?? "").localeCompare(a.lastSentAt ?? "") ||
+          a.club.localeCompare(b.club)
+      ),
+      awaitingApproval: outboundClubs.filter((c) => c.awaitingApproval).length,
+      sentLast7Days,
+      addedLast7Days: outboundClubs.filter((c) => c.addedAt && c.addedAt >= sevenDaysAgo).length,
+      replied: outboundClubs.filter((c) => c.repliedAt).length,
+      calls: outboundClubs.filter((c) => c.callAt).length,
+      failed: outboundStates.failed,
+      cohorts: [...cohortRows.entries()]
+        .sort(([a], [b]) => b.localeCompare(a))
+        .slice(0, 8)
+        .map(([week, r]) => ({ week, ...r })),
     },
     engagedPerDeal: { distribution, deals: engagedDeals, thin },
     windowWeeks: LOOKBACK_WEEKS,

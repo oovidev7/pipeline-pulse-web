@@ -58,14 +58,15 @@ function isOutreachTrigger(title: string): boolean {
 
 /**
  * Dated digests written by automations under a normal workspace seat —
- * "Email commitments — 2026-09-11", "Market signals — 2026-09-07". They are
+ * "Email commitments — 2026-09-11", "Email status — 2026-08-27", "Market
+ * signals — 2026-09-07". They are
  * reports *about* activity, not activity: counted as conversations they
  * inflated the metric, and as "what was last said" they buried the actual
  * last conversation under a summary of it. Kept in the timeline, but never
  * treated as an exchange.
  */
 function isGeneratedDigest(title: string): boolean {
-  return /^\s*(email commitments|market signals|call briefs?)\b/i.test(title);
+  return /^\s*(email commitments|email status|market signals|call briefs?)\b/i.test(title);
 }
 
 function classify(title: string, hasMeeting: boolean): NoteChannel {
@@ -198,14 +199,47 @@ export interface DealNotes {
 }
 
 /**
+ * "Nottingham Forest - Q3 2026" → "nottingham forest". Drops the period
+ * suffix, parentheticals and the FC/AFC/CD affixes note titles rarely carry
+ * ("Middlesbrough x Sentrum", not "Middlesbrough FC x Sentrum").
+ */
+function clubKey(dealName: string): string {
+  return dealName
+    .split(/\s+[-–]\s+/)[0]
+    .replace(/\(.*?\)/g, " ")
+    .replace(/^\s*(a\.?f\.?c|f\.?c|c\.?d)\.?\s+/i, "")
+    .replace(/\s+(a\.?f\.?c|f\.?c)\.?\s*$/i, "")
+    .trim()
+    .toLowerCase();
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Maps notes onto deals through all three attachment points. A note on a
  * company reaches every deal for that company: imprecise where one club has two
  * deals, but the alternative — dropping it — is what produced the blind spots
  * in the first place.
+ *
+ * Reaching a deal through its company's people is the weakest link, and it
+ * breaks on connectors. Edu Gaspar is still filed under Nottingham Forest, so
+ * his "Levski Sofia presentation" note became Forest's "last conversation".
+ * Football runs on people who move between clubs, so the note's own title is
+ * trusted over the filing: a note that arrives indirectly and names another
+ * club with a deal — but not this one — belongs to that club, not here. A
+ * person note whose title names exactly one club is routed to that club's
+ * deals, so the conversation still lands somewhere.
  */
 export function groupNotesByDeal(
   notes: AttioNote[],
-  deals: { id: string; associatedCompanyId: string | null; personIds: string[] }[]
+  deals: {
+    id: string;
+    name: string;
+    associatedCompanyId: string | null;
+    personIds: string[];
+  }[]
 ): Map<string, DealNotes> {
   const byRecord = new Map<string, AttioNote[]>();
   for (const note of notes) {
@@ -214,21 +248,65 @@ export function groupNotesByDeal(
     byRecord.set(note.parentRecordId, arr);
   }
 
+  // Which deal clubs each note's title names. Titles only: bodies mention
+  // rivals and former clubs in passing, titles say what the note is about.
+  const clubOfDeal = new Map(deals.map((d) => [d.id, clubKey(d.name)]));
+  const dealsByClub = new Map<string, string[]>();
+  for (const [dealId, club] of clubOfDeal) {
+    if (club.length < 3) continue;
+    const arr = dealsByClub.get(club) || [];
+    arr.push(dealId);
+    dealsByClub.set(club, arr);
+  }
+  const clubPatterns = [...dealsByClub.keys()].map((club) => ({
+    club,
+    re: new RegExp(`(^|[^\\p{L}])${escapeRegExp(club)}($|[^\\p{L}])`, "iu"),
+  }));
+  const clubsNamed = new Map<string, Set<string>>();
+  for (const note of notes) {
+    clubsNamed.set(
+      note.id,
+      new Set(clubPatterns.filter((p) => p.re.test(note.title)).map((p) => p.club))
+    );
+  }
+
+  const routed = new Map<string, AttioNote[]>();
+  for (const note of notes) {
+    const named = clubsNamed.get(note.id)!;
+    if (note.parentObject !== "people" || named.size !== 1) continue;
+    for (const dealId of dealsByClub.get([...named][0]) ?? []) {
+      const arr = routed.get(dealId) || [];
+      arr.push(note);
+      routed.set(dealId, arr);
+    }
+  }
+
   const out = new Map<string, DealNotes>();
   for (const deal of deals) {
-    const keys = [deal.id, deal.associatedCompanyId, ...deal.personIds].filter(
+    const ownClub = clubOfDeal.get(deal.id) ?? "";
+    const keys = [deal.associatedCompanyId, ...deal.personIds].filter(
       (k): k is string => Boolean(k)
     );
+    const aboutAnotherClub = (note: AttioNote) => {
+      const named = clubsNamed.get(note.id)!;
+      return named.size > 0 && !named.has(ownClub);
+    };
 
     const seen = new Set<string>();
     const all: AttioNote[] = [];
+    const take = (note: AttioNote) => {
+      if (seen.has(note.id)) return;
+      seen.add(note.id);
+      all.push(note);
+    };
+    // Notes on the deal itself are always its own, whatever the title says.
+    for (const note of byRecord.get(deal.id) ?? []) take(note);
     for (const key of keys) {
       for (const note of byRecord.get(key) ?? []) {
-        if (seen.has(note.id)) continue;
-        seen.add(note.id);
-        all.push(note);
+        if (!aboutAnotherClub(note)) take(note);
       }
     }
+    for (const note of routed.get(deal.id) ?? []) take(note);
     all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     out.set(deal.id, {

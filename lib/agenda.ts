@@ -101,6 +101,31 @@ export interface AgendaMove {
   to: string;
 }
 
+/** An open deal as the "where" view lists it when a row is expanded. */
+export interface WhereDeal {
+  id: string;
+  name: string;
+  stage: string;
+  value: number;
+  active: boolean;
+}
+
+/**
+ * One league's coverage: how many of its clubs in the CRM we are in play with.
+ * "3 of 24 Championship clubs" is the question; the deals are the answer.
+ */
+export interface AgendaLeague {
+  league: string;
+  /** Clubs in the CRM carrying this league — the addressable set we know of. */
+  clubs: number;
+  /** Distinct clubs with at least one open deal. */
+  clubsInPlay: number;
+  openDeals: number;
+  activeDeals: number;
+  openValue: number;
+  deals: WhereDeal[];
+}
+
 /** One market's share of the pipeline and of the recent talking. */
 export interface AgendaMarket {
   /** ISO country code, or "Unknown" when the club's company has no location. */
@@ -111,6 +136,7 @@ export interface AgendaMarket {
   openValue: number;
   calls: number;
   conversations: number;
+  deals: WhereDeal[];
 }
 
 export interface Agenda {
@@ -159,6 +185,8 @@ export interface Agenda {
   stages: StageRow[];
   /** Where the pipeline and the talking are, by country. */
   markets: AgendaMarket[];
+  /** Open deals by the club's league; deals on companies with no league come last as "No league". */
+  leagues: AgendaLeague[];
   marketWindowDays: number;
   /** This week's research signals, deal-linked where the club is in play. */
   signals: MarketSignal[];
@@ -258,7 +286,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v10";
+const AGENDA_CACHE_VERSION = "v11";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -510,6 +538,13 @@ export async function buildAgenda(): Promise<Agenda> {
     .map((x) => ({ deal: x.deal, lastAt: x.visibility!.lastCapturedAt }))
     .sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? ""));
   const activeIds = new Set(active.map((a) => a.deal.id));
+  const whereDeal = (d: DealRecord): WhereDeal => ({
+    id: d.id,
+    name: d.name,
+    stage: d.stage,
+    value: d.value || 0,
+    active: activeIds.has(d.id),
+  });
 
   // Where: open deals by the country of the club's company, against the calls
   // and conversations in the market window. "9 of 21 active" is a coverage
@@ -519,7 +554,7 @@ export async function buildAgenda(): Promise<Agenda> {
   const market = (country: string) => {
     let row = markets.get(country);
     if (!row) {
-      row = { country, openDeals: 0, activeDeals: 0, openValue: 0, calls: 0, conversations: 0 };
+      row = { country, openDeals: 0, activeDeals: 0, openValue: 0, calls: 0, conversations: 0, deals: [] };
       markets.set(country, row);
     }
     return row;
@@ -531,7 +566,44 @@ export async function buildAgenda(): Promise<Agenda> {
     row.openDeals += 1;
     row.openValue += d.value || 0;
     if (activeIds.has(d.id)) row.activeDeals += 1;
+    row.deals.push(whereDeal(d));
   }
+
+  // By league: the sharper cut. The denominator is every club in the CRM with
+  // that league — the leagues were loaded whole, so it is the real field.
+  const leagueOf = new Map(snapshot.companies.map((c) => [c.id, c.league]));
+  const leagueRows = new Map<string, AgendaLeague & { inPlay: Set<string> }>();
+  for (const c of snapshot.companies) {
+    if (!c.league) continue;
+    const row = leagueRows.get(c.league) ?? {
+      league: c.league, clubs: 0, clubsInPlay: 0, openDeals: 0, activeDeals: 0,
+      openValue: 0, deals: [], inPlay: new Set<string>(),
+    };
+    row.clubs += 1;
+    leagueRows.set(c.league, row);
+  }
+  for (const d of open) {
+    const league = (d.associatedCompanyId && leagueOf.get(d.associatedCompanyId)) || "No league";
+    const row = leagueRows.get(league) ?? {
+      league, clubs: 0, clubsInPlay: 0, openDeals: 0, activeDeals: 0,
+      openValue: 0, deals: [], inPlay: new Set<string>(),
+    };
+    row.openDeals += 1;
+    row.openValue += d.value || 0;
+    if (activeIds.has(d.id)) row.activeDeals += 1;
+    if (d.associatedCompanyId) row.inPlay.add(d.associatedCompanyId);
+    row.deals.push(whereDeal(d));
+    leagueRows.set(league, row);
+  }
+  const leagues: AgendaLeague[] = [...leagueRows.values()]
+    .filter((r) => r.openDeals > 0)
+    .map(({ inPlay, ...r }) => ({ ...r, clubsInPlay: inPlay.size }))
+    .sort(
+      (a, b) =>
+        Number(a.league === "No league") - Number(b.league === "No league") ||
+        b.openDeals - a.openDeals ||
+        b.openValue - a.openValue
+    );
   for (const m of metrics?.byMarket ?? []) {
     const row = market(m.country);
     row.calls = m.calls;
@@ -585,6 +657,7 @@ export async function buildAgenda(): Promise<Agenda> {
         b.openDeals - a.openDeals ||
         b.calls + b.conversations - (a.calls + a.conversations)
     ),
+    leagues,
     marketWindowDays: metrics?.marketWindowDays ?? 28,
     // This week's research, cleaned of Slack markup and deal-linked where the
     // club is in play. Fresh only: signals refresh each Monday, and stale ones

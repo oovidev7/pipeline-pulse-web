@@ -302,6 +302,17 @@ section:last-of-type { border-bottom: 0; }
 .more summary { cursor: pointer; font-size: 12.5px; color: var(--zinc-500); }
 .more summary:hover { color: var(--zinc-900); }
 
+/* Where: clickable rows that open into their deals. */
+.where-tabs { margin-top: 12px; }
+.bar-button { width: 100%; background: none; border: 0; padding: 4px 0; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 6px; }
+.bar-button:hover .bar-name { text-decoration: underline; text-underline-offset: 3px; }
+.bar-chevron { margin-left: 8px; color: var(--zinc-400); }
+.where-deals { margin: 4px 0 10px 134px; padding: 10px 14px; border: 1px solid var(--zinc-200); border-radius: 8px; background: #fcfcfc; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.where-deal { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 10px; align-items: center; }
+.where-deal a:hover { text-decoration: underline; }
+.where-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--zinc-300); }
+.where-dot.on { background: var(--brand-navy); }
+
 /* Path to signature, under each late-stage deal. */
 .close-row { border-bottom: 1px solid var(--gray-200); }
 .close-row:last-child { border-bottom: 0; }
@@ -340,6 +351,9 @@ section:last-of-type { border-bottom: 0; }
   .lrow > :nth-child(3), .lrow > :nth-child(4) { display: none; }
   .bar-row { grid-template-columns: 90px 1fr; }
   .plan-next, .plan-gaps { grid-template-columns: 1fr; gap: 2px; }
+  .where-deals { margin-left: 0; }
+  .where-deal { grid-template-columns: 10px 1fr auto; }
+  .where-deal > .muted { display: none; }
   .bar-text { grid-column: 1 / -1; margin-top: -4px; }
 }
 

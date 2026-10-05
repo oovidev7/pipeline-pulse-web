@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Agenda, AgendaDecision, AgendaMarket, AgendaMove } from "@/lib/agenda";
+import type { Agenda, AgendaDecision, AgendaMove, WhereDeal } from "@/lib/agenda";
 import type { MetricItem } from "@/lib/metrics";
 import type { ClosePlanResult } from "@/lib/close-plans";
 
@@ -71,6 +71,10 @@ export default function Agenda() {
   /** Counterparts hidden this session, for instant feedback and undo. */
   const [dismissed, setDismissed] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  /** The "where" cut: league coverage by default, country on request. */
+  const [whereBy, setWhereBy] = useState<"league" | "country">("league");
+  /** Which "where" row is open to show its deals. */
+  const [openWhere, setOpenWhere] = useState<string | null>(null);
   /** Path to signature per late-stage deal; null while it is being worked out. */
   const [plans, setPlans] = useState<Record<string, ClosePlanResult> | null>(null);
 
@@ -270,11 +274,45 @@ export default function Agenda() {
 
   const { decisions, queue } = data;
 
-  const knownMarkets = data.markets.filter((m) => m.country !== "Unknown");
+  const talkOf = (calls: number, conversations: number) =>
+    [
+      calls ? `${calls} call${calls === 1 ? "" : "s"}` : null,
+      conversations ? `${conversations} conversation${conversations === 1 ? "" : "s"}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const maxCountryOpen = Math.max(1, ...data.markets.map((m) => m.openDeals));
+  const whereRows: WhereRowData[] =
+    whereBy === "league"
+      ? data.leagues.map((l) => ({
+          key: `league:${l.league}`,
+          label: l.league,
+          // Coverage of the league: clubs in play out of the clubs we hold.
+          fill: l.clubs ? l.clubsInPlay / l.clubs : 1,
+          activeShare: l.openDeals ? l.activeDeals / l.openDeals : 0,
+          text:
+            l.league === "No league"
+              ? `${l.openDeals} open deal${l.openDeals === 1 ? "" : "s"} · ${l.activeDeals} active · ${GBP(l.openValue)}`
+              : `${l.clubsInPlay} of ${l.clubs} clubs in play · ${l.activeDeals} active · ${GBP(l.openValue)}`,
+          talk: "",
+          deals: l.deals,
+        }))
+      : data.markets
+          .filter((m) => m.country !== "Unknown")
+          .map((m) => ({
+            key: `country:${m.country}`,
+            label: (COUNTRY?.of(m.country) ?? m.country).replace("United Kingdom", "UK"),
+            fill: m.openDeals / maxCountryOpen,
+            activeShare: m.openDeals ? m.activeDeals / m.openDeals : 0,
+            text: m.openDeals > 0
+              ? `${m.activeDeals} of ${m.openDeals} active · ${GBP(m.openValue)}`
+              : "no open deals",
+            talk: talkOf(m.calls, m.conversations),
+            deals: m.deals,
+          }));
+  const topWhere = whereRows.slice(0, 8);
+  const restWhere = whereRows.slice(8);
   const unknownMarket = data.markets.find((m) => m.country === "Unknown");
-  const maxOpen = Math.max(1, ...data.markets.map((m) => m.openDeals));
-  const topMarkets = knownMarkets.slice(0, 8);
-  const restMarkets = knownMarkets.slice(8);
 
   const decidedCount = data.coverage.wonCount + data.coverage.lostCount;
 
@@ -554,43 +592,53 @@ export default function Agenda() {
       <section>
         <div className="eyebrow">
           <span className="dot" />
-          <span>Where · open deals by country</span>
+          <span>Where · open deals by {whereBy}</span>
           <Help>
             <p>
-              Each bar is a country’s open deals; the dark part is the ones
-              active now (a touch in 14 days, or a call booked). “11 of 21
-              active” says how much of a market is actually in conversation —
-              a map of the same numbers would mostly show how big Britain is.
+              <b>By league</b> — each bar is how much of a league we are in play
+              with: clubs with an open deal out of every club in Attio carrying
+              that league. The dark part is the share of those deals active now
+              (a touch in 14 days, or a call booked). “No league” is deals on
+              groups, investors and federations without one.
             </p>
             <p>
-              Calls and conversations are the last {data.marketWindowDays} days,
-              a window rather than a week: at this volume, a week per market is
-              mostly zeros.
+              <b>By country</b> — open deals by the club’s country, with calls
+              and conversations over the last {data.marketWindowDays} days: at
+              this volume a week per market is mostly zeros.
             </p>
-            <p>
-              Country comes from the club’s company record in Attio. League is
-              the sharper cut (“7 of 24 Championship clubs”); Attio’s League
-              field covers about two-thirds of open deals so far, so it isn’t
-              the chart yet.
-            </p>
+            <p>Click any row to see its deals.</p>
           </Help>
         </div>
-        <div className="bars">
-          {topMarkets.map((m) => (
-            <MarketRow key={m.country} m={m} maxOpen={maxOpen} />
+        <div className="tabs where-tabs">
+          {(["league", "country"] as const).map((v) => (
+            <button
+              type="button"
+              key={v}
+              className={`tab ${whereBy === v ? "on" : ""}`}
+              onClick={() => { setWhereBy(v); setOpenWhere(null); }}
+            >
+              By {v}
+            </button>
           ))}
         </div>
-        {restMarkets.length > 0 && (
+        <div className="bars">
+          {topWhere.map((r) => (
+            <WhereRow key={r.key} row={r} open={openWhere === r.key}
+              onToggle={() => setOpenWhere(openWhere === r.key ? null : r.key)} />
+          ))}
+        </div>
+        {restWhere.length > 0 && (
           <details className="more">
-            <summary>{restMarkets.length} more countries</summary>
+            <summary>{restWhere.length} more {whereBy === "league" ? "leagues" : "countries"}</summary>
             <div className="bars">
-              {restMarkets.map((m) => (
-                <MarketRow key={m.country} m={m} maxOpen={maxOpen} />
+              {restWhere.map((r) => (
+                <WhereRow key={r.key} row={r} open={openWhere === r.key}
+                  onToggle={() => setOpenWhere(openWhere === r.key ? null : r.key)} />
               ))}
             </div>
           </details>
         )}
-        {unknownMarket && unknownMarket.openDeals > 0 && (
+        {whereBy === "country" && unknownMarket && unknownMarket.openDeals > 0 && (
           <p className="note">
             {unknownMarket.openDeals} open deal{unknownMarket.openDeals === 1 ? "" : "s"} (
             {GBP(unknownMarket.openValue)}) sit on companies with no location in Attio, so they
@@ -916,31 +964,54 @@ const COUNTRY = (() => {
   }
 })();
 
-function MarketRow({ m, maxOpen }: { m: AgendaMarket; maxOpen: number }) {
-  const name = (COUNTRY?.of(m.country) ?? m.country).replace("United Kingdom", "UK");
-  const talk = [
-    m.calls ? `${m.calls} call${m.calls === 1 ? "" : "s"}` : null,
-    m.conversations ? `${m.conversations} conversation${m.conversations === 1 ? "" : "s"}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+interface WhereRowData {
+  key: string;
+  label: string;
+  /** Bar length, 0–1. */
+  fill: number;
+  /** Share of the bar drawn dark: deals active now. */
+  activeShare: number;
+  text: string;
+  talk: string;
+  deals: WhereDeal[];
+}
+
+/** One league or country; click to open its deals in place. */
+function WhereRow({ row, open, onToggle }: { row: WhereRowData; open: boolean; onToggle: () => void }) {
   return (
-    <div className="bar-row">
-      <div className="bar-name">{name}</div>
-      <div className="bar-track" aria-hidden="true">
-        <span className="bar-open" style={{ width: `${(m.openDeals / maxOpen) * 100}%` }}>
-          <span
-            className="bar-active"
-            style={{ width: m.openDeals ? `${(m.activeDeals / m.openDeals) * 100}%` : 0 }}
-          />
-        </span>
-      </div>
-      <div className="bar-text">
-        {m.openDeals > 0
-          ? `${m.activeDeals} of ${m.openDeals} active · ${GBP(m.openValue)}`
-          : "no open deals"}
-        {talk && <span className="muted"> · {talk}</span>}
-      </div>
+    <div className={`where-row ${open ? "open" : ""}`}>
+      <button type="button" className="bar-row bar-button" onClick={onToggle} aria-expanded={open}>
+        <div className="bar-name">{row.label}</div>
+        <div className="bar-track" aria-hidden="true">
+          <span className="bar-open" style={{ width: `${Math.min(1, row.fill) * 100}%` }}>
+            <span className="bar-active" style={{ width: `${row.activeShare * 100}%` }} />
+          </span>
+        </div>
+        <div className="bar-text">
+          {row.text}
+          {row.talk && <span className="muted"> · {row.talk}</span>}
+          <span className="bar-chevron">{open ? "▴" : "▾"}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="where-deals">
+          {row.deals.length === 0 ? (
+            <div className="muted">No open deals.</div>
+          ) : (
+            row.deals
+              .slice()
+              .sort((a, b) => Number(b.active) - Number(a.active) || b.value - a.value)
+              .map((d) => (
+                <div className="where-deal" key={d.id}>
+                  <span className={`where-dot ${d.active ? "on" : ""}`} title={d.active ? "Active" : "Quiet"} />
+                  <Link href={`/deal/${d.id}`}>{d.name}</Link>
+                  <span className="muted">{d.stage}</span>
+                  <span className="qval">{GBP(d.value)}</span>
+                </div>
+              ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -141,9 +141,11 @@ export async function buildAlertDigest(): Promise<AlertDigest> {
         return scoreDeal(d, {
           lastContactDate: entry?.lastContactDate ?? null,
           direction: entry?.direction ?? null,
-          // The cron has no per-request calendar view; a future next_call is
-          // the best available signal for a booked call here.
-          hasUpcomingCall: Boolean(d.nextCall && new Date(d.nextCall) >= new Date()),
+          // Same source as the dashboard (Attio's calendar sync and meetings),
+          // so Slack and the page agree on which deals have a call booked.
+          hasUpcomingCall:
+            Boolean(context.get(d.id)?.visibility.nextMeetingAt) ||
+            Boolean(d.nextCall && new Date(d.nextCall) >= new Date()),
           overdueTaskCount:
             tasks?.tasks.filter((t) => t.dealId === d.id && t.overdue).length ?? 0,
           signalDate: signal?.source_date ?? null,

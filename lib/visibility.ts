@@ -12,7 +12,7 @@
 // and asking it is also how the answer gets captured.
 
 import { DealRecord } from "./types";
-import { DealNotes, NoteChannel } from "./attio-notes";
+import { DealNotes, NoteChannel, decisionLine } from "./attio-notes";
 
 export type Channel = NoteChannel | "calendar";
 
@@ -84,7 +84,6 @@ export function computeVisibility(
     { at: inputs.gmailLastContact ?? null, channel: "email" },
     { at: inputs.lastCalendar ?? null, channel: "calendar" },
     { at: inputs.lastMeeting ?? null, channel: "meeting" },
-    { at: deal.lastWhatsappTouch, channel: "whatsapp" },
   ];
 
   // Notes carry their own channel, and are the only evidence of the LinkedIn
@@ -110,11 +109,12 @@ export function computeVisibility(
       .filter(isFuture)
       .sort()[0] ?? null;
 
-  // `note` is Attio's free-text verdict field; `stallNotes` is ours. Either
-  // means a human has said where this stands. Neither carries a timestamp, so
-  // an explanation is treated as standing until contradicted — which is why
-  // the digest asks whether it still holds rather than assuming it does.
-  const verdict = deal.dealNote?.trim() || deal.stallNotes?.trim() || null;
+  // `note` is Attio's free-text verdict field; a weekly-meeting decision is
+  // ours. Either means a human has said where this stands. The note carries no
+  // timestamp, so an explanation is treated as standing until contradicted —
+  // which is why the digest asks whether it still holds rather than assuming it does.
+  const decision = inputs.notes?.decisions?.[0];
+  const verdict = deal.dealNote?.trim() || (decision ? decisionLine(decision) : null);
 
   const recentlyActive =
     daysSinceCapture !== null && daysSinceCapture <= QUIET_DAYS;

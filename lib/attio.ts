@@ -147,17 +147,16 @@ function normalizeDeal(record: any): DealRecord {
     ownerName: null,
     stageChangedAt: getAttrDate(record, "stage_changed_at"),
     stageEnteredAt: null,
-    nextCall: getAttrDate(record, "next_call"),
+    // Filled from the contacts' calendars once people are known; see buildSnapshot.
+    nextCall: null,
     personIds: getReferencedIds(record, "associated_people"),
     personEmails: [],
     createdAt: record?.created_at || null,
-    stallNotes: getAttrString(record, "stall_notes"),
     // Fields that existed in Attio from the start and went unread until
     // 2026-08-24. `note` in particular carries human verdicts — Spartak
     // Moscow's reads "one more try then move to lost" — which is exactly the
     // judgement the dashboard should surface rather than recompute.
     dealNote: getAttrString(record, "note"),
-    lastWhatsappTouch: getAttrDate(record, "last_whatsapp_touch"),
     source: getAttrString(record, "source"),
     associatedCompanyId: getReferencedIds(record, "associated_company")[0] ?? null,
     companyDomain: null,
@@ -403,6 +402,13 @@ async function buildSnapshot(): Promise<AttioSnapshot> {
       (best, p) => strongerOf(best, p.connectionStrength),
       null
     );
+    // The next call is whatever is actually in the calendar, not a date
+    // someone typed into the deal and never updated.
+    const nowIso = new Date().toISOString();
+    const nextCall = contacts.reduce<string | null>((soonest, p) => {
+      const at = p.nextCalendarInteraction;
+      return at && at > nowIso && (!soonest || at < soonest) ? at : soonest;
+    }, null);
 
     const owner = members.find((m) => m.id === d.ownerId);
     return {
@@ -413,6 +419,7 @@ async function buildSnapshot(): Promise<AttioSnapshot> {
       engagedContactCount: engaged.length,
       lastPersonInteraction,
       bestConnectionStrength,
+      nextCall,
       ownerName: owner?.name || null,
       companyDomain: d.associatedCompanyId
         ? companyDomains.get(d.associatedCompanyId) ?? null
@@ -491,8 +498,9 @@ function daysBetween(a: Date, b: Date): number {
 const STALE_STAGE_DAYS = 14;
 
 /**
- * A `next_call` date in the past is not a booked call — the meeting already
- * happened and nothing new was scheduled. Only a future date counts.
+ * Whether a call is booked with any of the deal's contacts. `nextCall` comes
+ * from the calendar, but the snapshot is cached, so a call that has since
+ * happened is re-checked against now.
  */
 function hasUpcomingCall(deal: DealRecord, now: Date): boolean {
   if (!deal.nextCall) return false;
@@ -1058,17 +1066,22 @@ export function invalidateCaches(): void {
 }
 
 /**
- * Overwrites the `stall_notes` field on a deal. This replaces whatever is
- * there — callers should send the full intended text, not a fragment.
+ * Adds a plain-text note to a deal. Notes are append-only, so nothing the team
+ * has written is ever overwritten.
  */
-export async function saveStallNote(dealId: string, note: string): Promise<void> {
-  await attioFetch(`/objects/deals/records/${dealId}`, {
-    method: "PATCH",
+export async function addDealNote(dealId: string, title: string, content: string): Promise<void> {
+  await attioFetch(`/notes`, {
+    method: "POST",
     body: JSON.stringify({
-      data: { values: { stall_notes: note } },
+      data: {
+        parent_object: "deals",
+        parent_record_id: dealId,
+        title,
+        format: "plaintext",
+        content,
+      },
     }),
   });
-  invalidateCaches();
 }
 
 /**

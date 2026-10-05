@@ -107,16 +107,12 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
     }
   }
 
-  // Calls. A lapsed next_call is worse than none: momentum existed and was lost.
-  const nextCallDays = deal.nextCall ? daysSince(deal.nextCall) : null;
-  const nextCallInPast =
-    deal.nextCall !== null && new Date(deal.nextCall) < new Date();
-  if (!inputs.hasUpcomingCall) {
-    // The lapse is overdue from the moment it passes, so its own age is the
-    // escalation clock — a call missed in June outranks one missed on Friday.
-    if (nextCallInPast) add(`call lapsed ${nextCallDays}d ago`, 20 + persisted(nextCallDays));
-    else if (!deal.nextCall) add("no call booked", 12);
-  }
+  // Calls, from the calendar. There used to be a heavier "call lapsed" factor
+  // keyed off the deal's `next_call` field, but nobody kept that field current
+  // (14 of its 15 dates were in the past), so it mostly flagged calls that had
+  // happened. How long a deal has gone without contact is the quiet/cold
+  // factor's job below; here the only question is whether a call is booked.
+  if (!inputs.hasUpcomingCall) add("no call booked", 12);
 
   // Momentum, measured across every channel we can see — not just email.
   // Measuring email alone is what produced "silent 47 days" for a deal having

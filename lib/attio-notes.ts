@@ -72,6 +72,39 @@ function isGeneratedDigest(title: string): boolean {
   return /^\s*(email commitments|email status|market signals|call briefs?)\b/i.test(title);
 }
 
+/**
+ * A decision taken in the weekly meeting — "Still live", "Parked", "Marked
+ * lost" — saved by /api/deal-decision as a note on the deal. Used to live in
+ * the deal's `stall_notes` field, which was retired so the team works from a
+ * single Note field.
+ *
+ * The verdict and the date are part of the pattern, so a person's own note
+ * that happens to start "Pulse decision" is never mistaken for one.
+ */
+const DECISION_PREFIX = "Pulse decision: ";
+/** Body of a decision saved without a reason; not worth repeating back. */
+export const DECISION_NO_REASON = "Recorded in the weekly meeting.";
+const DECISION_TITLE = /^\s*Pulse decision: (Still live|Parked|Marked lost) \d{4}-\d{2}-\d{2}/i;
+
+export function isDecisionNote(title: string): boolean {
+  return DECISION_TITLE.test(title);
+}
+
+/** "Parked 2026-10-05 — revisit 2026-10-19" → the note title it is saved under. */
+export function decisionTitle(line: string): string {
+  return `${DECISION_PREFIX}${line}`;
+}
+
+/**
+ * The decision as one line, the way the agenda reads it: "Parked 2026-10-05 —
+ * revisit 2026-10-19 — waiting on budget". The reason lives in the body.
+ */
+export function decisionLine(note: AttioNote): string {
+  const head = note.title.replace(/^\s*Pulse decision:\s*/i, "").trim();
+  const reason = note.excerpt.trim();
+  return reason && reason !== DECISION_NO_REASON ? `${head} — ${reason}` : head;
+}
+
 function classify(title: string, hasMeeting: boolean): NoteChannel {
   if (hasMeeting) return "meeting";
   const t = title.toLowerCase();
@@ -148,7 +181,7 @@ export async function fetchNotes(): Promise<AttioNote[]> {
         channel: classify(title, Boolean(row?.meeting_id)),
         parentObject,
         parentRecordId,
-        human: !isOutreachTrigger(title) && !isGeneratedDigest(title),
+        human: !isOutreachTrigger(title) && !isGeneratedDigest(title) && !isDecisionNote(title),
       });
     }
 
@@ -193,8 +226,14 @@ function dedupeCopies(notes: AttioNote[]): AttioNote[] {
 }
 
 export interface DealNotes {
-  /** Every note reachable from this deal, newest first. */
+  /**
+   * Every note reachable from this deal, newest first. Decisions are not in
+   * here: a "Parked" verdict is not contact with the club, and counting it as
+   * a touch would make the deal it parks look freshly active.
+   */
   all: AttioNote[];
+  /** Weekly-meeting decisions saved on the deal itself, newest first. */
+  decisions: AttioNote[];
   /** Newest note that represents an actual exchange, for "last said". */
   lastConversation: AttioNote | null;
   /** Channels this deal has ever produced a note on. */
@@ -297,13 +336,20 @@ export function groupNotesByDeal(
 
     const seen = new Set<string>();
     const all: AttioNote[] = [];
+    const decisions: AttioNote[] = [];
     const take = (note: AttioNote) => {
       if (seen.has(note.id)) return;
       seen.add(note.id);
+      // Only a decision filed on this deal is about this deal; one reached
+      // through a shared company or person belongs to another deal.
+      if (isDecisionNote(note.title)) return;
       all.push(note);
     };
     // Notes on the deal itself are always its own, whatever the title says.
-    for (const note of byRecord.get(deal.id) ?? []) take(note);
+    for (const note of byRecord.get(deal.id) ?? []) {
+      if (isDecisionNote(note.title)) decisions.push(note);
+      else take(note);
+    }
     for (const key of keys) {
       for (const note of byRecord.get(key) ?? []) {
         if (!aboutAnotherClub(note)) take(note);
@@ -311,9 +357,11 @@ export function groupNotesByDeal(
     }
     for (const note of routed.get(deal.id) ?? []) take(note);
     all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    decisions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     out.set(deal.id, {
       all,
+      decisions,
       lastConversation: all.find((n) => n.human) ?? null,
       channels: [...new Set(all.map((n) => n.channel))],
     });

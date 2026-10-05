@@ -104,8 +104,8 @@ export async function POST(req: NextRequest) {
   let dealId: string | undefined;
   // "action" returns a suggested next step; "stall_note" drafts an editable
   // note explaining why the deal stalled; "outreach_note" drafts an outreach
-  // angle built around a fresh market signal. Both note modes are editable
-  // drafts destined for the deal's stall_notes field.
+  // angle built around a fresh market signal. Both note modes return editable
+  // drafts; nothing here writes to Attio.
   let mode: "action" | "stall_note" | "outreach_note" = "action";
   let signal: { signal?: string; why_it_matters?: string; source_date?: string } | null =
     null;

@@ -26,20 +26,22 @@ export interface DealRecord {
    * and can disagree; null when history could not be loaded.
    */
   stageEnteredAt: string | null;
+  /**
+   * Earliest upcoming calendar event with any of this deal's contacts, from
+   * Attio's calendar sync. Not the retired `next_call` field, which nobody
+   * kept current: 14 of its 15 dates were in the past.
+   */
   nextCall: string | null;
   personIds: string[];
   personEmails: string[];
   createdAt: string | null;
-  /** Free-text `stall_notes` field on the Attio deal — the only field this app writes. */
-  stallNotes: string | null;
   /**
    * Attio's own `note` field: a human's standing verdict on the deal, e.g.
-   * "one more try then move to lost". Distinct from `stallNotes`, which this
-   * app writes. Read-only here — it is someone's judgement, not our output.
+   * "one more try then move to lost". Read-only here — it is someone's
+   * judgement, not our output. The app's own weekly-meeting decisions are
+   * notes on the deal instead (see `isDecisionNote`).
    */
   dealNote: string | null;
-  /** Set by the Attio–WhatsApp connector. Null until that connector is live. */
-  lastWhatsappTouch: string | null;
   /** How the deal originated: LinkedIn, Email, Referral, Inbound, Event. */
   source: string | null;
   associatedCompanyId: string | null;

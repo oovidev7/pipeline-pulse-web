@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Agenda, AgendaDecision, AgendaMarket, AgendaMove } from "@/lib/agenda";
 import type { MetricItem } from "@/lib/metrics";
+import type { ClosePlanResult } from "@/lib/close-plans";
 
 const GBP = (n: number) =>
   "£" + Math.round(n || 0).toLocaleString("en-GB");
@@ -65,11 +66,13 @@ export default function Agenda() {
   const [busy, setBusy] = useState<string | null>(null);
   /** Which stat card is expanded to show the items behind its count. */
   const [openStat, setOpenStat] = useState<string | null>(null);
-  /** Decisions taken in this session, so progress is visible as you go. */
+  /** Decisions taken in this session, so a decided card says so. */
   const [settled, setSettled] = useState<Record<string, string>>({});
   /** Counterparts hidden this session, for instant feedback and undo. */
   const [dismissed, setDismissed] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  /** Path to signature per late-stage deal; null while it is being worked out. */
+  const [plans, setPlans] = useState<Record<string, ClosePlanResult> | null>(null);
 
   const load = useCallback(async (bust = false) => {
     try {
@@ -84,6 +87,19 @@ export default function Agenda() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Plans load after the agenda, never in front of it: a cold one reads every
+  // late-stage deal's notes in full.
+  const loadPlans = useCallback(async (bust = false) => {
+    try {
+      const res = await fetch(`/api/close-plans${bust ? "?refresh=1" : ""}`);
+      const body = await res.json();
+      setPlans(res.ok && body?.plans ? body.plans : {});
+    } catch {
+      setPlans({});
+    }
+  }, []);
+  useEffect(() => { if (data) loadPlans(); }, [data !== null, loadPlans]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const decide = async (dealId: string, decision: Decision, label: string) => {
     // "Dead" moves the deal to Lost in Attio, so it asks first.
@@ -133,9 +149,6 @@ export default function Agenda() {
     }
   };
 
-  const total = (data?.decisions.length ?? 0) + (data?.queue.length ?? 0);
-  const done = Object.keys(settled).length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -277,12 +290,6 @@ export default function Agenda() {
             </button>
           </div>
         </div>
-        <div className="progress"><span style={{ width: `${pct}%` }} /></div>
-        <div className="progress-label">
-          {done} of {total} settled · {data.decisions.length} decision
-          {data.decisions.length === 1 ? "" : "s"} + {data.queue.length} quick check
-          {data.queue.length === 1 ? "" : "s"} — done when the bar is full
-        </div>
       </div>
 
       {error && <div className="err">{error}</div>}
@@ -410,7 +417,11 @@ export default function Agenda() {
             <p>
               <b>Could close next</b> — every deal in Trialling or Proposal, by
               name. It replaces the weighted total: no deal ever closes at “8% of
-              £45k”, and a list is something the room can act on.
+              £45k”, and a list is something the room can act on. Under each
+              deal: the next step and what still stands between it and a
+              signature, worked out from the deal’s own notes, meetings and
+              contacts. Each line cites what it rests on; where the notes are
+              silent, it says so. It updates when the deal’s intel does.
             </p>
             <p>
               <b>Win record</b> — counts, not a percentage. With a dozen deals
@@ -469,13 +480,16 @@ export default function Agenda() {
         ) : (
           <div className="queue">
             {lateStage.map((d) => (
-              <div className="qrow" key={d.id}>
-                <div>
-                  <div className="qname"><Link href={`/deal/${d.id}`}>{d.name}</Link></div>
-                  <div className="qmeta">{d.stage} · {d.ownerName?.trim() || "Unassigned"}</div>
+              <div className="close-row" key={d.id}>
+                <div className="qrow">
+                  <div>
+                    <div className="qname"><Link href={`/deal/${d.id}`}>{d.name}</Link></div>
+                    <div className="qmeta">{d.stage} · {d.ownerName?.trim() || "Unassigned"}</div>
+                  </div>
+                  <div className="qval">{GBP(d.value)}</div>
+                  <div />
                 </div>
-                <div className="qval">{GBP(d.value)}</div>
-                <div />
+                <ClosePlanView plan={plans === null ? undefined : plans[d.id]} />
               </div>
             ))}
           </div>
@@ -619,7 +633,7 @@ export default function Agenda() {
             key={d.deal.id}
             item={d}
             index={i + 1}
-            total={total}
+            total={decisions.length}
             settled={settled[d.deal.id]}
             busy={busy === d.deal.id}
             onDecide={decide}
@@ -856,6 +870,42 @@ interface Tile {
   help: string;
   /** Upcoming items read soonest-first; everything else newest-first. */
   ascending?: boolean;
+}
+
+/** The next step and the gaps to signature under one late-stage deal. */
+function ClosePlanView({ plan }: { plan: ClosePlanResult | undefined }) {
+  if (plan === undefined) {
+    return <div className="plan plan-muted">Working out the path to signature…</div>;
+  }
+  if ("error" in plan) return <div className="plan plan-muted">{plan.error}</div>;
+  const asOf = plan.intelThrough
+    ? new Date(plan.intelThrough).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+    : null;
+  return (
+    <div className="plan">
+      <div className="plan-next">
+        <span className="plan-label">Next</span>
+        <span>
+          <b>{plan.nextStep.action}</b>
+          <span className="muted"> — {plan.nextStep.who}, {plan.nextStep.by}.</span>
+          <span className="plan-why">{plan.nextStep.because}</span>
+        </span>
+      </div>
+      {plan.gaps.length > 0 && (
+        <div className="plan-gaps">
+          <span className="plan-label">To signature</span>
+          <div>
+            {plan.gaps.map((g, i) => (
+              <div className={`plan-gap ${g.kind}`} key={i}>
+                <b>{g.gap}</b> <span className="muted">— {g.evidence}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {asOf && <div className="plan-asof">Based on intel up to {asOf}</div>}
+    </div>
+  );
 }
 
 const COUNTRY = (() => {

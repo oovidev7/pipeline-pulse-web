@@ -9,7 +9,12 @@
 // because two callers joined the same sources slightly differently.
 
 import { unstable_cache } from "next/cache";
-import { getAttioSnapshot, getComputedDealsResponse, getOpenTasks } from "./attio";
+import {
+  computeMovementBetween,
+  getAttioSnapshot,
+  getComputedDealsResponse,
+  getOpenTasks,
+} from "./attio";
 import { getContactActivity } from "./contact-activity-data";
 import { getSlackData } from "./slack-data";
 import { getDealContext, getMeetings } from "./deal-context";
@@ -17,7 +22,7 @@ import { STAGES } from "./types";
 import { buildMetrics, WeeklyMetrics, WeekDetail } from "./metrics";
 import { rankDeals, scoreDeal, RiskFactor } from "./risk";
 import { RISK_ALERT_THRESHOLD } from "./alerts";
-import { CLOSED_STAGES, DealRecord } from "./types";
+import { CLOSED_STAGES, DealRecord, StageMove } from "./types";
 import { DealVisibility } from "./visibility";
 import { AttioNote } from "./attio-notes";
 import { cleanSlackText, cleanSlackUrl } from "./slack-text";
@@ -77,36 +82,103 @@ export interface StageRow {
   stage: string;
   count: number;
   value: number;
-  /** Average days the open deals have currently been sitting in this stage. */
-  avgDays: number | null;
+  /**
+   * Median days the open deals have sat in this stage so far. Median, not
+   * mean: one deal parked for 200 days dragged the average for its whole
+   * stage past anything the other deals were doing.
+   */
+  medianDays: number | null;
+  /** Historical median days for deals that advanced out of this stage. */
+  benchmarkDays: number | null;
+  /** Open deals sitting longer than 1.5× that historical median. */
+  aging: number;
+}
+
+/** A stage change, as the room reads it. */
+export interface AgendaMove {
+  deal: DealRecord;
+  from: string | null;
+  to: string;
+}
+
+/** One market's share of the pipeline and of the recent talking. */
+export interface AgendaMarket {
+  /** ISO country code, or "Unknown" when the club's company has no location. */
+  country: string;
+  openDeals: number;
+  /** Open deals with a touch in the last 14 days or a call booked. */
+  activeDeals: number;
+  openValue: number;
+  calls: number;
+  conversations: number;
 }
 
 export interface Agenda {
   weekOf: string;
+  /** The last complete week — what the numbers and the movement both describe. */
+  period: { from: string; to: string };
   coverage: {
     target: number;
     won: number;
     gap: number;
     openValue: number;
-    weighted: number;
-    winRate: number;
+    /** Every deal ever decided, as counts: at this volume a bare % misleads. */
+    wonCount: number;
+    lostCount: number;
+    /**
+     * Trialling and Proposal, by name. Replaces a weighted total: no deal ever
+     * closes at "8% of £45k", and a named list is what the room can act on.
+     */
+    lateStage: DealRecord[];
   };
+  /** Wins and losses in the trailing window, from stage history. */
+  closed: { windowDays: number; won: AgendaMove[]; lost: AgendaMove[] };
   current: WeeklyMetrics | null;
   previous: WeeklyMetrics | null;
   /** The items behind the displayed week's counts — a number should open into its receipts. */
   breakdown: WeekDetail | null;
+  /**
+   * Open deals touched in the last 14 days or with a call booked — the same
+   * "active" the decision cards use, so the two can never disagree.
+   */
+  active: { deals: { deal: DealRecord; lastAt: string | null }[]; openCount: number };
   decisions: AgendaDecision[];
   queue: AgendaQueueItem[];
   queueTotal: number;
-  /** Deals that changed stage in the last 7 days — read out, not debated. */
-  moved: { deal: DealRecord; from: string | null; to: string }[];
-  /** Client calls booked for the next 7 days, each with its one-line brief. */
+  /** Stage changes in `period` — read out, not debated. */
+  movement: {
+    forward: AgendaMove[];
+    back: AgendaMove[];
+    won: AgendaMove[];
+    lost: AgendaMove[];
+    created: DealRecord[];
+  };
+  /** Calls booked for the next 7 days — pipeline calls first, each with its brief. */
   upcoming: UpcomingCall[];
   /** Open pipeline by stage — where the value actually sits. */
   stages: StageRow[];
+  /** Where the pipeline and the talking are, by country. */
+  markets: AgendaMarket[];
+  marketWindowDays: number;
   /** This week's research signals, deal-linked where the club is in play. */
   signals: MarketSignal[];
   cachedAt: string;
+}
+
+/** Wins and losses are read over a quarter: a week of them is mostly zeros. */
+const CLOSED_WINDOW_DAYS = 90;
+/** A deal is "aging" past this multiple of its stage's historical median. */
+const AGING_MULTIPLE = 1.5;
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function toMove(m: StageMove): AgendaMove {
+  return { deal: m.deal, from: m.fromStage, to: m.toStage };
 }
 
 const TARGET = Number(process.env.COMMERCIAL_TARGET || 300_000);
@@ -186,7 +258,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v9";
+const AGENDA_CACHE_VERSION = "v10";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -320,7 +392,13 @@ export async function buildAgenda(): Promise<Agenda> {
         m.startsAt <= weekAhead
     )
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-    .slice(0, 10)
+    // Pipeline calls are never crowded out: on 5 Oct, six coffees and catch-ups
+    // took six of the ten slots ahead of the club calls they were sharing.
+    .filter(
+      (m, _i, all) =>
+        all.filter((x) => Boolean(x.dealId) === Boolean(m.dealId)).indexOf(m) <
+        (m.dealId ? 10 : 8)
+    )
     .map((m) => {
       const deal = m.dealId ? deals.deals.find((d) => d.id === m.dealId) ?? null : null;
       const club = deal ? clubOf(deal.name) : null;
@@ -347,24 +425,29 @@ export async function buildAgenda(): Promise<Agenda> {
   // Where the value sits, stage by stage. A single open total flattens the
   // only distribution that matters: £45k in Trialling and £45k in Prospecting
   // are not the same money.
+  const dwellDays = (d: DealRecord): number | null => {
+    const from = d.stageEnteredAt || d.stageChangedAt;
+    return from ? (Date.now() - new Date(from).getTime()) / 86_400_000 : null;
+  };
   const stages: StageRow[] = STAGES.filter((s) => !CLOSED_STAGES.includes(s))
     .map((stage) => {
       const inStage = open.filter((d) => d.stage === stage);
       const dwells = inStage
-        .map((d) => {
-          const from = d.stageEnteredAt || d.stageChangedAt;
-          return from
-            ? (Date.now() - new Date(from).getTime()) / 86_400_000
-            : null;
-        })
+        .map(dwellDays)
         .filter((n): n is number => n !== null);
+      const benchmark =
+        deals.stageBenchmarks.find((b) => b.stage === stage)?.medianDaysToAdvance ?? null;
+      const mid = median(dwells);
       return {
         stage,
         count: inStage.length,
         value: inStage.reduce((t, d) => t + (d.value || 0), 0),
-        avgDays: dwells.length
-          ? Math.round(dwells.reduce((a, b) => a + b, 0) / dwells.length)
-          : null,
+        medianDays: mid === null ? null : Math.round(mid),
+        benchmarkDays: benchmark === null ? null : Math.round(benchmark),
+        aging:
+          benchmark === null
+            ? 0
+            : dwells.filter((days) => days > benchmark * AGING_MULTIPLE).length,
       };
     })
     .filter((r) => r.count > 0);
@@ -373,40 +456,136 @@ export async function buildAgenda(): Promise<Agenda> {
   // current week is hours old and every stat would read zero with an alarming
   // negative delta — which is noise wearing the clothes of a collapse.
   const monday = new Date();
+  monday.setUTCHours(0, 0, 0, 0);
   monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
   const thisWeek = monday.toISOString().slice(0, 10);
-  const weeks = (metrics?.weeks ?? []).filter((w) => w.week < thisWeek);
+  const lastMonday = new Date(monday.getTime() - 7 * 86_400_000);
+  const lastWeek = lastMonday.toISOString().slice(0, 10);
+  const weekBefore = new Date(lastMonday.getTime() - 7 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  // By key, not position: a week with nothing in it has no row at all, and
+  // taking "the last row" then showed an older week under last week's label.
+  const weekRow = (week: string): WeeklyMetrics | null =>
+    metrics
+      ? metrics.weeks.find((w) => w.week === week) ?? {
+          week,
+          dealsReachingDemo: 0,
+          discoveryCalls: 0,
+          progressionCalls: 0,
+          conversations: 0,
+          ecosystemMeetings: 0,
+        }
+      : null;
+
+  // Movement over the same week the numbers describe, so the two can be read
+  // against each other.
+  const movement = computeMovementBetween(
+    deals.deals,
+    snapshot.stageHistory,
+    lastMonday.toISOString(),
+    monday.toISOString()
+  );
+
+  // Wins and losses over a quarter, dated by the stage change itself.
+  const closedSince = new Date(Date.now() - CLOSED_WINDOW_DAYS * 86_400_000).toISOString();
+  const closedIn = (stage: string): AgendaMove[] =>
+    deals.deals
+      .filter((d) => d.stage === stage)
+      .map((d): (AgendaMove & { at: string }) | null => {
+        const history = snapshot.stageHistory[d.id] ?? [];
+        const i = history.findIndex((e) => e.stage === stage && !e.activeUntil);
+        const entry = i >= 0 ? history[i] : null;
+        return entry && entry.activeFrom >= closedSince
+          ? { deal: d, from: history[i - 1]?.stage ?? null, to: stage, at: entry.activeFrom }
+          : null;
+      })
+      .filter((m): m is AgendaMove & { at: string } => m !== null)
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .map(({ deal, from, to }) => ({ deal, from, to }));
+
+  const active = open
+    .map((d) => ({ deal: d, visibility: context.get(d.id)?.visibility }))
+    .filter((x) => x.visibility?.state === "active")
+    .map((x) => ({ deal: x.deal, lastAt: x.visibility!.lastCapturedAt }))
+    .sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? ""));
+  const activeIds = new Set(active.map((a) => a.deal.id));
+
+  // Where: open deals by the country of the club's company, against the calls
+  // and conversations in the market window. "9 of 21 active" is a coverage
+  // statement; a map of the same numbers would mostly show how big Britain is.
+  const countryOf = new Map(snapshot.companies.map((c) => [c.id, c.countryCode]));
+  const markets = new Map<string, AgendaMarket>();
+  const market = (country: string) => {
+    let row = markets.get(country);
+    if (!row) {
+      row = { country, openDeals: 0, activeDeals: 0, openValue: 0, calls: 0, conversations: 0 };
+      markets.set(country, row);
+    }
+    return row;
+  };
+  for (const d of open) {
+    const row = market(
+      (d.associatedCompanyId && countryOf.get(d.associatedCompanyId)) || "Unknown"
+    );
+    row.openDeals += 1;
+    row.openValue += d.value || 0;
+    if (activeIds.has(d.id)) row.activeDeals += 1;
+  }
+  for (const m of metrics?.byMarket ?? []) {
+    const row = market(m.country);
+    row.calls = m.calls;
+    row.conversations = m.conversations;
+  }
 
   const openValue = open.reduce((t, d) => t + (d.value || 0), 0);
   const won = deals.pipelineHealth.wonCount > 0 ? valueOfWon(deals) : 0;
 
   return {
     weekOf: new Date().toISOString().slice(0, 10),
+    period: { from: lastWeek, to: thisWeek },
     coverage: {
       target: TARGET,
       won,
       gap: Math.max(0, TARGET - won),
       openValue,
-      weighted: openValue * deals.pipelineHealth.winRate,
-      winRate: deals.pipelineHealth.winRate,
+      wonCount: deals.pipelineHealth.wonCount,
+      lostCount: deals.pipelineHealth.lostCount,
+      lateStage: open
+        .filter((d) => d.stage === "Trialling" || d.stage === "Proposal")
+        .sort((a, b) => (b.value || 0) - (a.value || 0)),
     },
-    current: weeks[weeks.length - 1] ?? null,
-    previous: weeks[weeks.length - 2] ?? null,
-    breakdown: weeks.length
-      ? metrics?.details?.[weeks[weeks.length - 1].week] ?? null
-      : null,
+    closed: {
+      windowDays: CLOSED_WINDOW_DAYS,
+      won: closedIn("Won 🎉"),
+      lost: closedIn("Lost"),
+    },
+    current: weekRow(lastWeek),
+    previous: weekRow(weekBefore),
+    breakdown: metrics?.details?.[lastWeek] ?? null,
+    active: { deals: active, openCount: open.length },
     decisions,
     queue: queueAll.slice(0, MAX_QUEUE),
     queueTotal: queueAll.length,
     // Stage changes, wins and losses alike — the room reads these, it does not
-    // debate them.
-    moved: [
-      ...(deals.movement?.movedStage ?? []),
-      ...(deals.movement?.won ?? []),
-      ...(deals.movement?.lost ?? []),
-    ].map((m) => ({ deal: m.deal, from: m.fromStage, to: m.toStage })),
+    // debate them. Split by direction: a deal sliding back a stage is news the
+    // old single list filed alongside progress.
+    movement: {
+      forward: movement.movedStage.filter((m) => m.direction !== "down").map(toMove),
+      back: movement.movedStage.filter((m) => m.direction === "down").map(toMove),
+      won: movement.won.map(toMove),
+      lost: movement.lost.map(toMove),
+      created: movement.created,
+    },
     upcoming,
     stages,
+    markets: [...markets.values()].sort(
+      (a, b) =>
+        Number(a.country === "Unknown") - Number(b.country === "Unknown") ||
+        b.openDeals - a.openDeals ||
+        b.calls + b.conversations - (a.calls + a.conversations)
+    ),
+    marketWindowDays: metrics?.marketWindowDays ?? 28,
     // This week's research, cleaned of Slack markup and deal-linked where the
     // club is in play. Fresh only: signals refresh each Monday, and stale ones
     // reading as news is the exact failure the old section was deleted for.

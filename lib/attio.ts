@@ -553,14 +553,12 @@ function sumValue(deals: DealRecord[]): number {
 function buildStageMove(
   deal: DealRecord,
   history: StageHistoryEntry[] | undefined,
-  now: Date
+  inWindow: (iso: string) => boolean
 ): StageMove | null {
   if (!history || history.length < 2) return null;
 
   // Every entry that became active inside the window is a transition.
-  const transitions = history.filter(
-    (e, i) => i > 0 && withinWindow(e.activeFrom, now, MOVEMENT_WINDOW_DAYS)
-  );
+  const transitions = history.filter((e, i) => i > 0 && inWindow(e.activeFrom));
   if (transitions.length === 0) return null;
 
   const firstIdx = history.indexOf(transitions[0]);
@@ -594,14 +592,49 @@ function computeMovement(
   stageHistory: Record<string, StageHistoryEntry[]>,
   now: Date
 ): PipelineMovement {
-  const created = deals.filter((d) => withinWindow(d.createdAt, now, MOVEMENT_WINDOW_DAYS));
+  return computeMovementIn(deals, stageHistory, (iso) =>
+    withinWindow(iso, now, MOVEMENT_WINDOW_DAYS)
+  );
+}
+
+/**
+ * Movement over a fixed period rather than the trailing week. The agenda
+ * reviews the last *complete* week, and a "moved" list on a different window
+ * from the numbers above it is how 3 deals reaching demo sat over 5 deals
+ * moving into Demo on the same screen.
+ */
+export function computeMovementBetween(
+  deals: DealRecord[],
+  stageHistory: Record<string, StageHistoryEntry[]>,
+  fromIso: string,
+  toIso: string
+): PipelineMovement {
+  const movement = computeMovementIn(
+    deals,
+    stageHistory,
+    (iso) => Boolean(iso) && iso >= fromIso && iso < toIso
+  );
+  return {
+    ...movement,
+    windowDays: Math.round(
+      (new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000
+    ),
+  };
+}
+
+function computeMovementIn(
+  deals: DealRecord[],
+  stageHistory: Record<string, StageHistoryEntry[]>,
+  inWindow: (iso: string) => boolean
+): PipelineMovement {
+  const created = deals.filter((d) => Boolean(d.createdAt) && inWindow(d.createdAt!));
   const createdIds = new Set(created.map((d) => d.id));
 
   const hasAnyHistory = Object.values(stageHistory).some((h) => h.length > 0);
 
   const moves = deals
     .filter((d) => !createdIds.has(d.id))
-    .map((d) => buildStageMove(d, stageHistory[d.id], now))
+    .map((d) => buildStageMove(d, stageHistory[d.id], inWindow))
     .filter((m): m is StageMove => m !== null);
 
   const won = moves.filter((m) => m.toStage === "Won 🎉");

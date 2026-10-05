@@ -116,6 +116,16 @@ export interface ConversationReport {
   windowWeeks: number;
 }
 
+/**
+ * Who to show. 47 contacts at clubs have no name in Attio ("Unknown"); their
+ * email address still says who it was, where "Someone at the club" didn't.
+ */
+function displayName(person: { name: string; email: string | null } | null | undefined): string {
+  if (person?.name && person.name !== "Unknown") return person.name;
+  if (person?.email) return person.email;
+  return "No contact named (logged on the club)";
+}
+
 /** Monday of the week containing `iso`, as YYYY-MM-DD. */
 function weekOf(iso: string): string {
   const d = new Date(iso);
@@ -331,9 +341,28 @@ export async function buildConversations(): Promise<ConversationReport> {
     add(person?.id ?? null, companyId, e.at, "email");
   }
 
+  // A write-up of a call is the call, which the calendar already counts. The
+  // write-up often sits on a different record than the meeting — Ogi's note
+  // on "Dansk Boldspil-Union" for a call linked to the league body's record —
+  // so match on the title, the way meeting tools name their notes.
+  const titleKey = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const callTimesByTitle = new Map<string, number[]>();
+  for (const m of meetings) {
+    const k = titleKey(m.title);
+    if (!k || m.startsAt > nowIso) continue;
+    const arr = callTimesByTitle.get(k) ?? [];
+    arr.push(new Date(m.startsAt).getTime());
+    callTimesByTitle.set(k, arr);
+  }
+  const isCallWriteup = (title: string, at: string) =>
+    (callTimesByTitle.get(titleKey(title)) ?? []).some(
+      (t) => Math.abs(t - new Date(at).getTime()) <= 2 * DAY_MS
+    );
+
   for (const n of notes) {
     // Meeting notes are the call itself, counted from the calendar below.
     if (!n.human || n.channel === "meeting") continue;
+    if (isCallWriteup(n.title, n.createdAt)) continue;
     const channel: ConversationChannel =
       n.channel === "linkedin" ? "linkedin" : n.channel === "whatsapp" ? "whatsapp" : n.channel === "email" ? "email" : "note";
     if (n.parentObject === "people") {
@@ -412,7 +441,7 @@ export async function buildConversations(): Promise<ConversationReport> {
       }
       const person = r.e.personId ? personById.get(r.e.personId) : null;
       return {
-        name: person?.name && person.name !== "Unknown" ? person.name : "Someone at the club",
+        name: displayName(person),
         club: clubs.get(r.e.companyId)!.name,
         channels: [...r.channels],
         isNew,
@@ -481,10 +510,7 @@ export async function buildConversations(): Promise<ConversationReport> {
       dealId: d.id,
       deal: d.name,
       stage: d.stage,
-      people: engaged.map((id) => {
-        const name = personById.get(id)?.name;
-        return name && name !== "Unknown" ? name : "unnamed contact";
-      }),
+      people: engaged.map((id) => displayName(personById.get(id))),
     });
     if (n === 0) distribution.zero += 1;
     else if (n === 1) distribution.one += 1;

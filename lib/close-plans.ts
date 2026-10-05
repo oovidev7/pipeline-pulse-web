@@ -243,32 +243,29 @@ async function generatePlan(intel: string): Promise<ClosePlan> {
 }
 
 /**
- * One deal's plan, cached until anything it was built from changes: a new
- * note or meeting, a stage move, an edited verdict. Opening the page never
- * pays for a model call on intel that has not moved.
+ * Plans are rebuilt on a schedule, not on every change: the room reads them
+ * twice a week, and rebuilding on each new note spent money on plans nobody
+ * opened. Each deal gets one plan per slot — the latest Monday or Thursday,
+ * 06:00 UTC — built by the first warm or page load after it. A deal that
+ * reaches Trialling mid-week gets its first plan straight away.
  */
-function cachedPlan(dealId: string, fingerprint: string, build: () => Promise<ClosePlan>) {
-  return unstable_cache(build, ["close-plan", PLAN_VERSION, dealId, fingerprint], {
+const PLAN_DAYS = [1, 4]; // Monday, Thursday
+const PLAN_HOUR_UTC = 6;
+
+function planSlot(now = new Date()): string {
+  for (let back = 0; back < 8; back++) {
+    const d = new Date(now.getTime() - back * 86_400_000);
+    d.setUTCHours(PLAN_HOUR_UTC, 0, 0, 0);
+    if (PLAN_DAYS.includes(d.getUTCDay()) && d <= now) return d.toISOString().slice(0, 13);
+  }
+  return now.toISOString().slice(0, 10);
+}
+
+function cachedPlan(dealId: string, slot: string, build: () => Promise<ClosePlan>) {
+  return unstable_cache(build, ["close-plan", PLAN_VERSION, dealId, slot], {
     revalidate: 7 * 86_400,
     tags: ["close-plans"],
   })();
-}
-
-function fingerprintOf(deal: DealRecord, signals: DealSignals | undefined): string {
-  const parts = [
-    deal.stage,
-    deal.stageEnteredAt ?? deal.stageChangedAt ?? "",
-    deal.dealNote ?? "",
-    deal.stallNotes ?? "",
-    deal.personIds.length,
-    signals?.notes.all[0]?.id ?? "",
-    signals?.meetings[0]?.id ?? "",
-    signals?.meetings.length ?? 0,
-  ].join("|");
-  // Short and stable; the key only has to change when the inputs do.
-  let h = 0;
-  for (let i = 0; i < parts.length; i++) h = (h * 31 + parts.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
 }
 
 /** Plans for every open Trialling and Proposal deal, keyed by deal id. */
@@ -297,7 +294,7 @@ export async function getClosePlans(): Promise<Record<string, ClosePlanResult>> 
         .filter((s) => (s.club || "").trim().toLowerCase() === club)
         .map((s) => `${s.source_date ?? ""} ${s.signal ?? ""}`.trim());
       try {
-        const plan = await cachedPlan(deal.id, fingerprintOf(deal, signals), async () => {
+        const plan = await cachedPlan(deal.id, planSlot(), async () => {
           const { text } = await dealIntel(deal, signals, brief, market);
           return generatePlan(text);
         });

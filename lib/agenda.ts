@@ -20,6 +20,7 @@ import { getSlackData } from "./slack-data";
 import { getDealContext, getMeetings } from "./deal-context";
 import { STAGES } from "./types";
 import { buildMetrics, WeeklyMetrics, WeekDetail } from "./metrics";
+import { buildConversations, ConversationReport } from "./conversations";
 import { rankDeals, scoreDeal, RiskFactor } from "./risk";
 import { RISK_ALERT_THRESHOLD } from "./alerts";
 import { CLOSED_STAGES, DealRecord, StageMove } from "./types";
@@ -183,6 +184,8 @@ export interface Agenda {
   upcoming: UpcomingCall[];
   /** Open pipeline by stage — where the value actually sits. */
   stages: StageRow[];
+  /** People at clubs who talked with us, any channel — and what came of it. */
+  conversations: ConversationReport | null;
   /** Where the pipeline and the talking are, by country. */
   markets: AgendaMarket[];
   /** Open deals by the club's league; deals on companies with no league come last as "No league". */
@@ -286,7 +289,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v11";
+const AGENDA_CACHE_VERSION = "v12";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -305,9 +308,13 @@ export async function buildAgenda(): Promise<Agenda> {
   const gmailByDeal = new Map(
     (activity?.entries ?? []).map((e: any) => [e.dealId, e.lastContactDate ?? null])
   );
-  const [context, metrics, allMeetings, snapshot, hidden] = await Promise.all([
+  const [context, metrics, conversations, allMeetings, snapshot, hidden] = await Promise.all([
     getDealContext(gmailByDeal),
     buildMetrics(8).catch(() => null),
+    buildConversations().catch((err) => {
+      console.error("[agenda] conversations", err);
+      return null;
+    }),
     getMeetings().catch(() => []),
     getAttioSnapshot(),
     readHiddenCounterparts().catch(() => []),
@@ -658,6 +665,7 @@ export async function buildAgenda(): Promise<Agenda> {
         b.calls + b.conversations - (a.calls + a.conversations)
     ),
     leagues,
+    conversations,
     marketWindowDays: metrics?.marketWindowDays ?? 28,
     // This week's research, cleaned of Slack markup and deal-linked where the
     // club is in play. Fresh only: signals refresh each Monday, and stale ones

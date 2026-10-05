@@ -173,6 +173,16 @@ export async function findAutoDeals(options?: {
   const hasDeal = new Set(
     snapshot.deals.map((d) => d.associatedCompanyId).filter(Boolean) as string[]
   );
+  // A deal made by hand is sometimes linked only to a person, not the club —
+  // Notts County's was. Its contacts' club counts as having a deal too, or the
+  // next run would make a second one.
+  const companyOfPerson = new Map(snapshot.people.map((p) => [p.id, p.companyId]));
+  for (const d of snapshot.deals) {
+    for (const pid of d.personIds) {
+      const companyId = companyOfPerson.get(pid);
+      if (companyId) hasDeal.add(companyId);
+    }
+  }
   const clubs = new Map(
     snapshot.companies
       .filter((c) => c.league && !hasDeal.has(c.id) && !hiddenIds.has(c.id))

@@ -11,8 +11,10 @@ export async function GET(req: NextRequest) {
   const bust = req.nextUrl.searchParams.has("refresh");
   if (bust) {
     invalidateNotesCache();
-    // "Refresh" should mean the outreach numbers too, not an hour-old copy.
-    for (const tag of ["outbound-states", "inbound-email"]) {
+    // "Refresh" should mean the outreach numbers too, not an hour-old copy —
+    // and the cached agenda itself, or the next plain page load would bring
+    // back the very numbers this refresh replaced.
+    for (const tag of ["agenda", "outbound-states", "inbound-email"]) {
       try { revalidateTag(tag); } catch { /* outside a request scope */ }
     }
   }

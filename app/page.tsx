@@ -75,6 +75,8 @@ export default function Agenda() {
   const [whereBy, setWhereBy] = useState<"league" | "country">("league");
   /** Which "where" row is open to show its deals. */
   const [openWhere, setOpenWhere] = useState<string | null>(null);
+  /** Which prospecting row or chip is open to show who it is. */
+  const [openProspect, setOpenProspect] = useState<string | null>(null);
   /** Path to signature per late-stage deal; null while it is being worked out. */
   const [plans, setPlans] = useState<Record<string, ClosePlanResult> | null>(null);
 
@@ -177,12 +179,23 @@ export default function Agenda() {
   ) ?? null;
   // New conversations by source over the last four complete weeks.
   const recentWeeks = (conv?.weeks ?? []).filter((w) => w.week < data.period.to).slice(-4);
-  const newBySource: Record<string, number> = {};
+  const newBySource: Record<string, NonNullable<typeof conv>["people"][string]> = {};
   for (const w of recentWeeks) {
-    for (const [src, n] of Object.entries(w.newBySource)) newBySource[src] = (newBySource[src] ?? 0) + n;
+    for (const p of conv?.people[w.week] ?? []) {
+      if (p.isNew) (newBySource[p.source] ??= []).push(p);
+    }
   }
-  const sourceRows = Object.entries(newBySource).sort((a, b) => b[1] - a[1]);
-  const maxSource = Math.max(1, ...sourceRows.map(([, n]) => n));
+  const sourceRows = Object.entries(newBySource).sort((a, b) => b[1].length - a[1].length);
+  const maxSource = Math.max(1, ...sourceRows.map(([, ps]) => ps.length));
+  const toggleProspect = (key: string) => setOpenProspect(openProspect === key ? null : key);
+  const engagedBuckets = conv
+    ? ([
+        ["none", conv.engagedPerDeal.distribution.zero, (n: number) => n === 0],
+        ["1 person", conv.engagedPerDeal.distribution.one, (n: number) => n === 1],
+        ["2 people", conv.engagedPerDeal.distribution.two, (n: number) => n === 2],
+        ["3+ people", conv.engagedPerDeal.distribution.threePlus, (n: number) => n >= 3],
+      ] as const)
+    : [];
   const cur = data.current;
   const prev = data.previous;
   const b = data.breakdown;
@@ -250,7 +263,11 @@ export default function Agenda() {
           })),
           help:
             "People at clubs who talked with us last week, on any channel — an email from them, a LinkedIn or WhatsApp exchange, a call, or a logged conversation. Each person counts once, however many channels. Outreach nobody answered, automated sends and digests count nowhere. New = the first conversation with that person in the last 12 weeks." +
-            (conv && !conv.emailConnected ? " Email isn't in this count yet: the Attio key needs the Emails read scope." : ""),
+            (conv?.emailSource.kind === "gmail"
+              ? ` Email is counted from ${conv.emailSource.mailboxes.join(" and ")} only.`
+              : conv && !conv.emailConnected
+                ? " Email isn't in this count yet: no inbox is connected."
+                : ""),
         },
         {
           key: "active",
@@ -694,28 +711,59 @@ export default function Agenda() {
               </p>
             </Help>
           </div>
-          {!conv.emailConnected && (
+          {!conv.emailConnected ? (
             <p className="note">
-              Email isn’t counted yet — the Attio API key needs the <b>Emails: read</b> scope
-              (Workspace settings → Developers → the Pipeline Pulse key). Until then these
-              numbers are calls, LinkedIn, WhatsApp and logged notes only.
+              Email isn’t counted yet — no inbox is connected. These numbers are calls,
+              LinkedIn, WhatsApp and logged notes only.
             </p>
-          )}
+          ) : conv.emailSource.kind === "gmail" ? (
+            <p className="note">
+              Email is counted from {conv.emailSource.mailboxes.join(" and ")} only — anyone
+              emailing another inbox isn’t in these numbers until its Gmail is connected.
+            </p>
+          ) : null}
 
           <div className="group-label">New conversations by source · last 4 weeks</div>
           {sourceRows.length === 0 ? (
             <p className="note">No new conversations in the last four weeks.</p>
           ) : (
             <div className="bars">
-              {sourceRows.map(([src, n]) => (
-                <div className="bar-row" key={src}>
-                  <div className="bar-name">{src}</div>
-                  <div className="bar-track" aria-hidden="true">
-                    <span className="bar-open bar-solid" style={{ width: `${(n / maxSource) * 100}%` }} />
+              {sourceRows.map(([src, ps]) => {
+                const key = `source:${src}`;
+                const open = openProspect === key;
+                return (
+                  <div className={`where-row ${open ? "open" : ""}`} key={src}>
+                    <button type="button" className="bar-row bar-button" onClick={() => toggleProspect(key)} aria-expanded={open}>
+                      <div className="bar-name">{src}</div>
+                      <div className="bar-track" aria-hidden="true">
+                        <span className="bar-open bar-solid" style={{ width: `${(ps.length / maxSource) * 100}%` }} />
+                      </div>
+                      <div className="bar-text">
+                        {ps.length} {ps.length === 1 ? "person" : "people"}
+                        <span className="bar-chevron">{open ? "▴" : "▾"}</span>
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="where-deals">
+                        {ps
+                          .slice()
+                          .sort((a, b) => b.at.localeCompare(a.at))
+                          .map((p, i) => (
+                            <div className="convo-row" key={i}>
+                              <span className="qval">
+                                {new Date(p.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                              </span>
+                              <span>
+                                <b>{p.name}</b> — {p.dealId ? <Link href={`/deal/${p.dealId}`}>{p.club}</Link> : p.club}
+                              </span>
+                              <span className="muted">{p.channels.join(" + ")}</span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="bar-text">{n} {n === 1 ? "person" : "people"}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -723,31 +771,68 @@ export default function Agenda() {
           {conv.conversion.clubs === 0 ? (
             <p className="note">No clubs had a first conversation 4–8 weeks ago.</p>
           ) : (
-            <p className="note" style={{ marginTop: 4 }}>
-              <b>{conv.conversion.converted} of {conv.conversion.clubs} clubs</b> whose first
-              conversation was 4–8 weeks ago had a call within 30 days.{" "}
-              <span className="muted">
-                {conv.conversion.weeks
-                  .map((w) => `w/c ${new Date(w.week).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}: ${w.converted} of ${w.clubs}`)
-                  .join(" · ")}
-              </span>
-            </p>
+            <>
+              <button type="button" className="note linkish" style={{ marginTop: 4 }} onClick={() => toggleProspect("conversion")} aria-expanded={openProspect === "conversion"}>
+                <b>{conv.conversion.converted} of {conv.conversion.clubs} clubs</b> whose first
+                conversation was 4–8 weeks ago had a call within 30 days.{" "}
+                <span className="bar-chevron">{openProspect === "conversion" ? "▴ hide" : "▾ show clubs"}</span>
+              </button>
+              {openProspect === "conversion" && (
+                <div className="where-deals flush">
+                  {conv.conversion.list.map((c, i) => (
+                    <div className="convo-row" key={i}>
+                      <span className={`where-dot ${c.callAt ? "on" : ""}`} />
+                      <span>
+                        <b>{c.dealId ? <Link href={`/deal/${c.dealId}`}>{c.club}</Link> : c.club}</b>
+                        <span className="muted">
+                          {" "}— first talked {new Date(c.firstAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </span>
+                      </span>
+                      <span className="muted">
+                        {c.callAt
+                          ? `call ${new Date(c.callAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                          : "no call within 30 days"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           <div className="group-label">People engaged per open deal · last 30 days</div>
           <div className="engaged-chips">
-            {([
-              ["none", conv.engagedPerDeal.distribution.zero],
-              ["1 person", conv.engagedPerDeal.distribution.one],
-              ["2 people", conv.engagedPerDeal.distribution.two],
-              ["3+ people", conv.engagedPerDeal.distribution.threePlus],
-            ] as const).map(([label, n]) => (
-              <div className="engaged-chip" key={label}>
-                <div className="engaged-n">{n}</div>
-                <div className="engaged-label">{label}</div>
-              </div>
-            ))}
+            {engagedBuckets.map(([label, n]) => {
+              const key = `engaged:${label}`;
+              return (
+                <button
+                  type="button"
+                  className={`engaged-chip ${openProspect === key ? "open" : ""}`}
+                  key={label}
+                  onClick={() => toggleProspect(key)}
+                  aria-expanded={openProspect === key}
+                >
+                  <div className="engaged-n">{n}</div>
+                  <div className="engaged-label">{label}</div>
+                </button>
+              );
+            })}
           </div>
+          {engagedBuckets.map(([label, , match]) =>
+            openProspect === `engaged:${label}` ? (
+              <div className="where-deals flush" key={label}>
+                {conv.engagedPerDeal.deals
+                  .filter((d) => match(d.people.length))
+                  .map((d) => (
+                    <div className="convo-row" key={d.dealId}>
+                      <span className="muted">{d.stage.replace(" / discovery", "")}</span>
+                      <span><b><Link href={`/deal/${d.dealId}`}>{d.deal}</Link></b></span>
+                      <span className="muted">{d.people.length ? d.people.join(", ") : "nobody in 30 days"}</span>
+                    </div>
+                  ))}
+              </div>
+            ) : null
+          )}
           {conv.engagedPerDeal.thin.length > 0 && (
             <p className="note">
               <b>Late-stage deals on one contact or none:</b>{" "}

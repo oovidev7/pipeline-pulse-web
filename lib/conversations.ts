@@ -53,7 +53,25 @@ export interface ConversationPerson {
   /** First conversation with this person in the lookback window. */
   isNew: boolean;
   dealId: string | null;
+  /** How the club's deal started, or "No deal yet". */
+  source: string;
   at: string;
+}
+
+export interface ConversionClub {
+  club: string;
+  dealId: string | null;
+  firstAt: string;
+  /** Date of the first call within 30 days, if there was one. */
+  callAt: string | null;
+}
+
+export interface EngagedDeal {
+  dealId: string;
+  deal: string;
+  stage: string;
+  /** Names of the people at the club who talked with us in the window. */
+  people: string[];
 }
 
 export interface ConversationWeek {
@@ -84,10 +102,14 @@ export interface ConversationReport {
     weeks: { week: string; clubs: number; converted: number }[];
     clubs: number;
     converted: number;
+    /** Every club in those weeks, so the count opens into names. */
+    list: ConversionClub[];
   };
   /** Open deals by people engaged in the last 30 days. */
   engagedPerDeal: {
     distribution: { zero: number; one: number; two: number; threePlus: number };
+    /** Every open deal with who is engaged, for the chips to open into. */
+    deals: EngagedDeal[];
     /** Qualified and beyond with one person or none — the deals that hang on a single contact. */
     thin: { dealId: string; deal: string; stage: string; people: number }[];
   };
@@ -395,6 +417,7 @@ export async function buildConversations(): Promise<ConversationReport> {
         channels: [...r.channels],
         isNew,
         dealId: deal?.id ?? null,
+        source,
         at: r.first,
       };
     });
@@ -415,11 +438,20 @@ export async function buildConversations(): Promise<ConversationReport> {
   const from8 = weekOf(new Date(now.getTime() - 8 * 7 * DAY_MS).toISOString());
   const to4 = weekOf(new Date(now.getTime() - 4 * 7 * DAY_MS).toISOString());
   const cohorts = new Map<string, { clubs: number; converted: number }>();
+  const conversionList: ConversionClub[] = [];
   for (const [companyId, first] of firstByClub) {
     const w = weekOf(first);
     if (w < from8 || w > to4) continue;
     const limit = new Date(new Date(first).getTime() + CONVERSION_DAYS * DAY_MS).toISOString();
-    const converted = (callsByClub.get(companyId) ?? []).some((at) => at >= first && at <= limit);
+    const callAt =
+      (callsByClub.get(companyId) ?? []).filter((at) => at >= first && at <= limit).sort()[0] ?? null;
+    const converted = callAt !== null;
+    conversionList.push({
+      club: clubs.get(companyId)!.name,
+      dealId: clubDeal(companyId)?.id ?? null,
+      firstAt: first,
+      callAt,
+    });
     const row = cohorts.get(w) ?? { clubs: 0, converted: 0 };
     row.clubs += 1;
     if (converted) row.converted += 1;
@@ -432,6 +464,7 @@ export async function buildConversations(): Promise<ConversationReport> {
   // People engaged per open deal, last 30 days.
   const engagedSince = new Date(now.getTime() - ENGAGED_DAYS * DAY_MS).toISOString();
   const engagedByClub = new Map<string, Set<string>>();
+  const engagedDeals: EngagedDeal[] = [];
   for (const e of sorted) {
     if (e.at < engagedSince || !e.personId) continue;
     const set = engagedByClub.get(e.companyId) ?? new Set<string>();
@@ -442,7 +475,17 @@ export async function buildConversations(): Promise<ConversationReport> {
   const thin: ConversationReport["engagedPerDeal"]["thin"] = [];
   for (const d of snapshot.deals) {
     if (CLOSED_STAGES.includes(d.stage as any) || !d.associatedCompanyId) continue;
-    const n = engagedByClub.get(d.associatedCompanyId)?.size ?? 0;
+    const engaged = [...(engagedByClub.get(d.associatedCompanyId) ?? [])];
+    const n = engaged.length;
+    engagedDeals.push({
+      dealId: d.id,
+      deal: d.name,
+      stage: d.stage,
+      people: engaged.map((id) => {
+        const name = personById.get(id)?.name;
+        return name && name !== "Unknown" ? name : "unnamed contact";
+      }),
+    });
     if (n === 0) distribution.zero += 1;
     else if (n === 1) distribution.one += 1;
     else if (n === 2) distribution.two += 1;
@@ -461,8 +504,9 @@ export async function buildConversations(): Promise<ConversationReport> {
       weeks: conversionWeeks,
       clubs: conversionWeeks.reduce((t, r) => t + r.clubs, 0),
       converted: conversionWeeks.reduce((t, r) => t + r.converted, 0),
+      list: conversionList.sort((a, b) => a.firstAt.localeCompare(b.firstAt)),
     },
-    engagedPerDeal: { distribution, thin },
+    engagedPerDeal: { distribution, deals: engagedDeals, thin },
     windowWeeks: LOOKBACK_WEEKS,
   };
 }

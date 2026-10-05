@@ -44,7 +44,10 @@ export interface AttioNote {
  * to stop.
  */
 function isAgentNote(title: string): boolean {
-  return /^\s*\[agent:/i.test(title);
+  // The outbound agent writes its run state as "Outbound (agent) state" notes
+  // under a normal seat — 33 of the 39 "conversations" counted in the week of
+  // 2026-09-28, and each one a fresh "touch" on whichever deal it hung off.
+  return /^\s*\[agent:/i.test(title) || /\(agent\)/i.test(title);
 }
 
 /**

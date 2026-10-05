@@ -21,6 +21,12 @@ import { attioFetch, getAttioSnapshot } from "./attio";
 import { fetchNotes } from "./attio-notes";
 import { getMeetings } from "./deal-context";
 import { CLOSED_STAGES } from "./types";
+import {
+  getAccessToken,
+  getConfiguredGoogleAccounts,
+  runWithConcurrency,
+  withTimeout,
+} from "./google-auth";
 
 export type ConversationChannel = "email" | "linkedin" | "whatsapp" | "call" | "note";
 
@@ -62,8 +68,10 @@ export interface ConversationWeek {
 }
 
 export interface ConversationReport {
-  /** False until the Attio key can read email; the count is then notes and calls only. */
+  /** False when no email source is available; the count is then notes and calls only. */
   emailConnected: boolean;
+  /** Where email came from: Attio's sync (every mailbox) or these Gmail inboxes. */
+  emailSource: { kind: "attio" | "gmail" | "none"; mailboxes: string[] };
   weeks: ConversationWeek[];
   /** Who, per week — the receipts behind each count. */
   people: Record<string, ConversationPerson[]>;
@@ -140,9 +148,99 @@ async function fetchInboundEmail(since: string): Promise<InboundEmail[] | null> 
   return out;
 }
 
-/** Cached for an hour: a lookback of email is many pages, and it moves slowly. */
-const cachedInboundEmail = (since: string) =>
-  unstable_cache(() => fetchInboundEmail(since), ["inbound-email", since.slice(0, 13)], {
+/** Domains in one Gmail query: `from:(a OR b …)` stays well inside query limits. */
+const GMAIL_DOMAINS_PER_QUERY = 30;
+
+/**
+ * Inbound email from club domains, straight from Gmail — the fallback while
+ * Attio's emails API isn't offered on our token. Searches by sender domain, so
+ * only club mail is fetched: a few hundred headers, not the whole inbox.
+ * Headers only (From, date); bodies are never read.
+ */
+async function fetchInboundGmail(
+  since: string,
+  clubDomains: string[]
+): Promise<{ emails: InboundEmail[]; mailboxes: string[] }> {
+  const after = Math.floor(new Date(since).getTime() / 1000);
+  const chunks: string[][] = [];
+  for (let i = 0; i < clubDomains.length; i += GMAIL_DOMAINS_PER_QUERY) {
+    chunks.push(clubDomains.slice(i, i + GMAIL_DOMAINS_PER_QUERY));
+  }
+  const emails: InboundEmail[] = [];
+  const mailboxes: string[] = [];
+  const seen = new Set<string>();
+  for (const account of getConfiguredGoogleAccounts()) {
+    try {
+      const token = await getAccessToken(account);
+      const gmail = async (path: string) => {
+        const res = await withTimeout(
+          fetch(`https://gmail.googleapis.com/gmail/v1/users/me${path}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          }),
+          10_000,
+          "gmail"
+        );
+        if (!res.ok) throw new Error(`Gmail ${res.status}`);
+        return res.json();
+      };
+      const profile = await gmail("/profile");
+      if (profile?.emailAddress) mailboxes.push(profile.emailAddress);
+
+      const ids: string[] = [];
+      for (const chunk of chunks) {
+        const q = `after:${after} -from:me from:(${chunk.join(" OR ")})`;
+        let pageToken: string | undefined;
+        for (let page = 0; page < 10; page++) {
+          const list = await gmail(
+            `/messages?q=${encodeURIComponent(q)}&maxResults=500${pageToken ? `&pageToken=${pageToken}` : ""}`
+          );
+          for (const m of list?.messages ?? []) ids.push(m.id);
+          pageToken = list?.nextPageToken;
+          if (!pageToken) break;
+        }
+      }
+
+      const headers = await runWithConcurrency(ids, 8, async (id) => {
+        const msg = await gmail(`/messages/${id}?format=metadata&metadataHeaders=From`);
+        const raw = msg?.payload?.headers?.find((h: any) => h.name?.toLowerCase() === "from")?.value ?? "";
+        const from = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase();
+        return { from, at: new Date(Number(msg?.internalDate ?? 0)).toISOString() };
+      });
+      for (const h of headers) {
+        if (!h?.from?.includes("@")) continue;
+        // One email reaching both founders is one email.
+        const key = `${h.from}|${h.at.slice(0, 16)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        emails.push({ at: h.at, from: h.from, companyIds: [] });
+      }
+    } catch (err: any) {
+      console.error(`[conversations] gmail ${account.key}:`, err?.message);
+    }
+  }
+  return { emails, mailboxes };
+}
+
+interface EmailFeed {
+  kind: "attio" | "gmail" | "none";
+  mailboxes: string[];
+  emails: InboundEmail[];
+}
+
+/** Attio's email sync when the token allows it; Gmail otherwise. */
+export async function inboundEmail(since: string, clubDomains: string[]): Promise<EmailFeed> {
+  const attio = await fetchInboundEmail(since).catch(() => null);
+  if (attio) return { kind: "attio", mailboxes: [], emails: attio };
+  const gmail = await fetchInboundGmail(since, clubDomains);
+  return gmail.mailboxes.length
+    ? { kind: "gmail", mailboxes: gmail.mailboxes, emails: gmail.emails }
+    : { kind: "none", mailboxes: [], emails: [] };
+}
+
+/** Cached for an hour: a lookback of email is many requests, and it moves slowly. */
+const cachedInboundEmail = (since: string, clubDomains: string[]) =>
+  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v2", since.slice(0, 13)], {
     revalidate: 3600,
     tags: ["inbound-email"],
   })();
@@ -152,14 +250,10 @@ export async function buildConversations(): Promise<ConversationReport> {
   const since = new Date(weekOf(new Date(now.getTime() - LOOKBACK_WEEKS * 7 * DAY_MS).toISOString())).toISOString();
   const nowIso = now.toISOString();
 
-  const [snapshot, notes, meetings, email] = await Promise.all([
+  const [snapshot, notes, meetings] = await Promise.all([
     getAttioSnapshot(),
     fetchNotes(),
     getMeetings().catch(() => []),
-    cachedInboundEmail(since).catch((err) => {
-      console.error("[conversations] email", err?.message ?? err);
-      return null;
-    }),
   ]);
 
   // Clubs, plus any company we have a deal with — multi-club groups like Bay
@@ -176,6 +270,23 @@ export async function buildConversations(): Promise<ConversationReport> {
   for (const c of clubs.values()) {
     if (c.domain) clubByDomain.set(c.domain.toLowerCase().replace(/^www\./, ""), c.id);
   }
+  /** mail.club.com → club.com: senders often use a subdomain of the club's site. */
+  const clubForDomain = (domain: string): string | undefined => {
+    let d = domain.toLowerCase();
+    while (d.includes(".")) {
+      const hit = clubByDomain.get(d);
+      if (hit) return hit;
+      d = d.slice(d.indexOf(".") + 1);
+    }
+    return undefined;
+  };
+  const feed: EmailFeed = await cachedInboundEmail(since, [...clubByDomain.keys()].sort()).catch(
+    (err) => {
+      console.error("[conversations] email", err?.message ?? err);
+      return { kind: "none" as const, mailboxes: [], emails: [] };
+    }
+  );
+  const email = feed.kind === "none" ? null : feed.emails;
 
   const events: Event[] = [];
   const add = (personId: string | null, companyId: string | null | undefined, at: string, channel: ConversationChannel) => {
@@ -194,7 +305,7 @@ export async function buildConversations(): Promise<ConversationReport> {
     const companyId =
       person?.companyId ??
       e.companyIds.find((id) => clubs.has(id)) ??
-      clubByDomain.get(e.from.split("@")[1] ?? "");
+      clubForDomain(e.from.split("@")[1] ?? "");
     add(person?.id ?? null, companyId, e.at, "email");
   }
 
@@ -343,6 +454,7 @@ export async function buildConversations(): Promise<ConversationReport> {
 
   return {
     emailConnected: email !== null,
+    emailSource: { kind: feed.kind, mailboxes: feed.mailboxes },
     weeks,
     people,
     conversion: {

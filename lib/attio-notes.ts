@@ -133,8 +133,13 @@ function excerptOf(body: string | null | undefined, limit = 240): string {
 }
 
 const PAGE = 50;
-/** Enough to cover well over a year of this workspace's note volume. */
-const MAX_PAGES = 12;
+/**
+ * A runaway guard, not a budget. The endpoint returns notes *oldest* first, so
+ * any cap cuts off the newest notes — the ones that matter. It was 12 pages
+ * (600 notes) until 2026-10-05, with the workspace at 507 and adding ~5 a day:
+ * within weeks every new note, decisions included, would have been invisible.
+ */
+const MAX_PAGES = 60;
 /**
  * How far back to keep. Applied after fetching, not as an early exit: this
  * endpoint returns notes *oldest* first, so stopping on the first old note
@@ -155,6 +160,9 @@ export async function fetchNotes(): Promise<AttioNote[]> {
     const body = await attioFetch(`/notes?limit=${PAGE}&offset=${page * PAGE}`);
     const rows: any[] = body?.data ?? [];
     if (rows.length === 0) break;
+    if (page === MAX_PAGES - 1 && rows.length === PAGE) {
+      console.warn(`[attio-notes] stopped at ${MAX_PAGES * PAGE} notes; the newest are being missed`);
+    }
 
     for (const row of rows) {
       if ((row?.created_at ?? "") < horizon) continue;
@@ -209,6 +217,13 @@ const PARENT_RANK: Record<string, number> = { deals: 0, companies: 1, people: 2 
 function dedupeCopies(notes: AttioNote[]): AttioNote[] {
   const best = new Map<string, AttioNote>();
   for (const note of notes) {
+    // Decisions are written once per deal and look identical across deals
+    // ("Parked 2026-10-05", same default body): collapsing them would leave
+    // every deal parked that day but one back on the agenda.
+    if (isDecisionNote(note.title)) {
+      best.set(`decision|${note.id}`, note);
+      continue;
+    }
     const key = [
       note.title.toLowerCase(),
       note.excerpt.slice(0, 80).toLowerCase(),

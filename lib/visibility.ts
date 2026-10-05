@@ -36,6 +36,8 @@ export interface DealVisibility {
   channels: Channel[];
   /** A future meeting, which means alive regardless of silence elsewhere. */
   nextMeetingAt: string | null;
+  /** The most recent call already held, from the calendar or Attio's meetings. */
+  lastCallAt: string | null;
   /** The standing human verdict, when one is recorded on the deal. */
   verdict: string | null;
   /** One plain sentence, honest about its own limits. */
@@ -108,6 +110,11 @@ export function computeVisibility(
     [deal.nextCall, inputs.nextCalendar ?? null, inputs.nextMeeting ?? null]
       .filter(isFuture)
       .sort()[0] ?? null;
+  const lastCallAt =
+    [inputs.lastCalendar ?? null, inputs.lastMeeting ?? null]
+      .filter((at): at is string => Boolean(at) && !isFuture(at))
+      .sort()
+      .pop() ?? null;
 
   // `note` is Attio's free-text verdict field; a weekly-meeting decision is
   // ours. Either means a human has said where this stands. The note carries no
@@ -133,6 +140,7 @@ export function computeVisibility(
     daysSinceCapture,
     channels,
     nextMeetingAt,
+    lastCallAt,
     verdict,
     summary: describe(state, daysSinceCapture, channels, nextMeetingAt, verdict),
   };

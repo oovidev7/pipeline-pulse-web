@@ -288,7 +288,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v16";
+const AGENDA_CACHE_VERSION = "v17";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),

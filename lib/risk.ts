@@ -72,6 +72,9 @@ function daysSince(iso: string | null | undefined): number | null {
  */
 const ESCALATION_CAP = 10;
 
+/** Days after a call before having nothing booked counts as momentum lost. */
+const CALL_GRACE_DAYS = 14;
+
 function persisted(daysOverdue: number | null): number {
   if (daysOverdue === null || daysOverdue <= 0) return 0;
   return Math.min(ESCALATION_CAP, Math.floor(daysOverdue / 7));
@@ -107,12 +110,23 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
     }
   }
 
-  // Calls, from the calendar. There used to be a heavier "call lapsed" factor
-  // keyed off the deal's `next_call` field, but nobody kept that field current
-  // (14 of its 15 dates were in the past), so it mostly flagged calls that had
-  // happened. How long a deal has gone without contact is the quiet/cold
-  // factor's job below; here the only question is whether a call is booked.
-  if (!inputs.hasUpcomingCall) add("no call booked", 12);
+  // Calls, from the calendar. A call held with nothing booked after it is
+  // worse than none: momentum existed and was lost. That used to key off the
+  // deal's `next_call` field, which nobody kept current (14 of its 15 dates
+  // were in the past), so deals with a call on the books read as lapsed. Now
+  // it is the last call actually held, after a fortnight's grace to book the
+  // next one, and its age is the escalation clock.
+  if (!inputs.hasUpcomingCall) {
+    const sinceCall = daysSince(inputs.visibility?.lastCallAt);
+    if (sinceCall !== null && sinceCall > CALL_GRACE_DAYS) {
+      add(
+        `last call ${sinceCall}d ago, none booked`,
+        20 + persisted(sinceCall - CALL_GRACE_DAYS)
+      );
+    } else {
+      add("no call booked", 12);
+    }
+  }
 
   // Momentum, measured across every channel we can see — not just email.
   // Measuring email alone is what produced "silent 47 days" for a deal having

@@ -713,15 +713,21 @@ export default function Agenda() {
           </div>
           {!conv.emailConnected ? (
             <p className="note">
-              Email isn’t counted yet — no inbox is connected. These numbers are calls,
+              Email isn’t counted yet — no inbox could be read. These numbers are calls,
               LinkedIn, WhatsApp and logged notes only.
             </p>
           ) : conv.emailSource.kind === "gmail" ? (
             <p className="note">
-              Email is counted from {conv.emailSource.mailboxes.join(" and ")} only — anyone
-              emailing another inbox isn’t in these numbers until its Gmail is connected.
+              Email is counted from {conv.emailSource.mailboxes.join(" and ")}.
             </p>
           ) : null}
+          {conv.emailSource.failed.length > 0 && (
+            <p className="note">
+              <b>Couldn’t read {conv.emailSource.failed.join(" or ")}</b> — that Google token no
+              longer works (usually issued under an earlier OAuth client, or expired). Regenerate
+              it in Vercel and redeploy; until then that inbox isn’t counted.
+            </p>
+          )}
 
           <div className="group-label">New conversations by source · last 4 weeks</div>
           {sourceRows.length === 0 ? (

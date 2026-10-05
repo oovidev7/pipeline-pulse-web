@@ -89,7 +89,12 @@ export interface ConversationReport {
   /** False when no email source is available; the count is then notes and calls only. */
   emailConnected: boolean;
   /** Where email came from: Attio's sync (every mailbox) or these Gmail inboxes. */
-  emailSource: { kind: "attio" | "gmail" | "none"; mailboxes: string[] };
+  emailSource: {
+    kind: "attio" | "gmail" | "none";
+    mailboxes: string[];
+    /** Configured Google tokens that couldn't be used, by env var — so a broken inbox shows. */
+    failed: string[];
+  };
   weeks: ConversationWeek[];
   /** Who, per week — the receipts behind each count. */
   people: Record<string, ConversationPerson[]>;
@@ -192,7 +197,7 @@ const GMAIL_DOMAINS_PER_QUERY = 30;
 async function fetchInboundGmail(
   since: string,
   clubDomains: string[]
-): Promise<{ emails: InboundEmail[]; mailboxes: string[] }> {
+): Promise<{ emails: InboundEmail[]; mailboxes: string[]; failed: string[] }> {
   const after = Math.floor(new Date(since).getTime() / 1000);
   const chunks: string[][] = [];
   for (let i = 0; i < clubDomains.length; i += GMAIL_DOMAINS_PER_QUERY) {
@@ -200,6 +205,7 @@ async function fetchInboundGmail(
   }
   const emails: InboundEmail[] = [];
   const mailboxes: string[] = [];
+  const failed: string[] = [];
   const seen = new Set<string>();
   for (const account of getConfiguredGoogleAccounts()) {
     try {
@@ -217,7 +223,10 @@ async function fetchInboundGmail(
         return res.json();
       };
       const profile = await gmail("/profile");
-      if (profile?.emailAddress) mailboxes.push(profile.emailAddress);
+      const mailbox = String(profile?.emailAddress ?? "").toLowerCase();
+      // Two tokens for the same inbox: read it once.
+      if (!mailbox || mailboxes.includes(mailbox)) continue;
+      mailboxes.push(mailbox);
 
       const ids: string[] = [];
       for (const chunk of chunks) {
@@ -249,30 +258,34 @@ async function fetchInboundGmail(
       }
     } catch (err: any) {
       console.error(`[conversations] gmail ${account.key}:`, err?.message);
+      failed.push(
+        account.key === "default" ? "GOOGLE_REFRESH_TOKEN" : `GOOGLE_REFRESH_TOKEN_${account.key.toUpperCase()}`
+      );
     }
   }
-  return { emails, mailboxes };
+  return { emails, mailboxes, failed };
 }
 
 interface EmailFeed {
   kind: "attio" | "gmail" | "none";
   mailboxes: string[];
+  failed: string[];
   emails: InboundEmail[];
 }
 
 /** Attio's email sync when the token allows it; Gmail otherwise. */
 export async function inboundEmail(since: string, clubDomains: string[]): Promise<EmailFeed> {
   const attio = await fetchInboundEmail(since).catch(() => null);
-  if (attio) return { kind: "attio", mailboxes: [], emails: attio };
+  if (attio) return { kind: "attio", mailboxes: [], failed: [], emails: attio };
   const gmail = await fetchInboundGmail(since, clubDomains);
   return gmail.mailboxes.length
-    ? { kind: "gmail", mailboxes: gmail.mailboxes, emails: gmail.emails }
-    : { kind: "none", mailboxes: [], emails: [] };
+    ? { kind: "gmail", mailboxes: gmail.mailboxes, failed: gmail.failed, emails: gmail.emails }
+    : { kind: "none", mailboxes: [], failed: gmail.failed, emails: [] };
 }
 
 /** Cached for an hour: a lookback of email is many requests, and it moves slowly. */
 const cachedInboundEmail = (since: string, clubDomains: string[]) =>
-  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v2", since.slice(0, 13)], {
+  unstable_cache(() => inboundEmail(since, clubDomains), ["inbound-email-v3", since.slice(0, 13)], {
     revalidate: 3600,
     tags: ["inbound-email"],
   })();
@@ -315,7 +328,7 @@ export async function buildConversations(): Promise<ConversationReport> {
   const feed: EmailFeed = await cachedInboundEmail(since, [...clubByDomain.keys()].sort()).catch(
     (err) => {
       console.error("[conversations] email", err?.message ?? err);
-      return { kind: "none" as const, mailboxes: [], emails: [] };
+      return { kind: "none" as const, mailboxes: [], failed: [], emails: [] };
     }
   );
   const email = feed.kind === "none" ? null : feed.emails;
@@ -523,7 +536,7 @@ export async function buildConversations(): Promise<ConversationReport> {
 
   return {
     emailConnected: email !== null,
-    emailSource: { kind: feed.kind, mailboxes: feed.mailboxes },
+    emailSource: { kind: feed.kind, mailboxes: feed.mailboxes, failed: feed.failed },
     weeks,
     people,
     conversion: {

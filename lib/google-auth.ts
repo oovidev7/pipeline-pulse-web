@@ -1,8 +1,11 @@
 // Shared Google OAuth2 refresh-token helper for Gmail + Calendar routes.
 //
-// v1 supports up to two Google accounts (e.g. two sales reps sharing this
-// dashboard) via GOOGLE_REFRESH_TOKEN_OGI and GOOGLE_REFRESH_TOKEN_DANNY.
-// If neither of those is set, falls back to the single GOOGLE_REFRESH_TOKEN.
+// Supports the named accounts GOOGLE_REFRESH_TOKEN_OGI and
+// GOOGLE_REFRESH_TOKEN_DANNY plus the single GOOGLE_REFRESH_TOKEN. All that
+// are set are used: the plain token used to be dropped whenever a named one
+// existed, so when the named tokens went stale (issued under an earlier OAuth
+// client) every inbox silently stopped being read while a working token sat
+// unused. Callers that need one row per mailbox dedupe by the mailbox address.
 // Each named account gets its own access-token cache entry. Calendar route
 // merges events from every configured account; Gmail route currently only
 // needs one account's inbox for from/to search (typically the shared sales
@@ -29,8 +32,9 @@ export function getConfiguredGoogleAccounts(): GoogleAccount[] {
   if (process.env.GOOGLE_REFRESH_TOKEN_DANNY) {
     accounts.push({ key: "danny", refreshToken: process.env.GOOGLE_REFRESH_TOKEN_DANNY });
   }
-  if (accounts.length === 0 && process.env.GOOGLE_REFRESH_TOKEN) {
-    accounts.push({ key: "default", refreshToken: process.env.GOOGLE_REFRESH_TOKEN });
+  const plain = process.env.GOOGLE_REFRESH_TOKEN;
+  if (plain && !accounts.some((a) => a.refreshToken === plain)) {
+    accounts.push({ key: "default", refreshToken: plain });
   }
   return accounts;
 }

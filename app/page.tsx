@@ -69,8 +69,6 @@ export default function Agenda() {
   const [settled, setSettled] = useState<Record<string, string>>({});
   /** Counterparts hidden this session, for instant feedback and undo. */
   const [dismissed, setDismissed] = useState<Record<string, string>>({});
-  /** The per-person view; null is everyone. */
-  const [owner, setOwner] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (bust = false) => {
@@ -154,10 +152,6 @@ export default function Agenda() {
     );
   }
   if (!data) return <div className="panel"><div className="loading">Loading the week…</div></div>;
-
-  /** The per-person view: lists narrow to one owner, the numbers stay team-wide. */
-  const mine = (deal: { ownerName: string | null }) =>
-    !owner || deal.ownerName?.trim() === owner;
 
   const cur = data.current;
   const prev = data.previous;
@@ -251,18 +245,17 @@ export default function Agenda() {
   const fmtDelta = (d: number | null) =>
     d === null ? null : d === 0 ? "no change" : d > 0 ? `+${d}` : `${d}`;
 
-  const lateStage = data.coverage.lateStage.filter(mine);
+  const lateStage = data.coverage.lateStage;
   const moveGroups: { label: string; moves: AgendaMove[] }[] = [
     { label: "Forward", moves: data.movement.forward },
     { label: "Back a stage", moves: data.movement.back },
     { label: "Won", moves: data.movement.won },
     { label: "Lost", moves: data.movement.lost },
-  ].map((g) => ({ ...g, moves: g.moves.filter((m) => mine(m.deal)) }));
-  const created = data.movement.created.filter(mine);
+  ];
+  const created = data.movement.created;
   const anyMoves = moveGroups.some((g) => g.moves.length) || created.length > 0;
 
-  const decisions = data.decisions.filter((d) => mine(d.deal));
-  const queue = data.queue.filter((q) => mine(q.deal));
+  const { decisions, queue } = data;
 
   const knownMarkets = data.markets.filter((m) => m.country !== "Unknown");
   const unknownMarket = data.markets.find((m) => m.country === "Unknown");
@@ -290,21 +283,6 @@ export default function Agenda() {
           {data.decisions.length === 1 ? "" : "s"} + {data.queue.length} quick check
           {data.queue.length === 1 ? "" : "s"} — done when the bar is full
         </div>
-        {data.owners.length > 1 && (
-          <div className="tabs owner-tabs">
-            {[null, ...data.owners].map((o) => (
-              <button
-                type="button"
-                key={o ?? "everyone"}
-                className={`tab ${owner === o ? "on" : ""}`}
-                onClick={() => setOwner(o)}
-              >
-                {o ?? "Everyone"}
-              </button>
-            ))}
-            {owner && <span className="muted owner-note">Lists show {owner}’s deals; the numbers stay team-wide.</span>}
-          </div>
-        )}
       </div>
 
       {error && <div className="err">{error}</div>}
@@ -487,7 +465,7 @@ export default function Agenda() {
 
         <div className="group-label">Could close next · Trialling and Proposal</div>
         {lateStage.length === 0 ? (
-          <p className="note">Nothing in Trialling or Proposal{owner ? ` for ${owner}` : ""}.</p>
+          <p className="note">Nothing in Trialling or Proposal.</p>
         ) : (
           <div className="queue">
             {lateStage.map((d) => (
@@ -517,7 +495,7 @@ export default function Agenda() {
           <span>Moved last week · {RANGE(data.period.from, data.period.to)} · read, don’t debate</span>
         </div>
         {!anyMoves ? (
-          <p className="note">No stage changes last week{owner ? ` on ${owner}’s deals` : ""}.</p>
+          <p className="note">No stage changes last week.</p>
         ) : (
           <>
             {moveGroups
@@ -680,7 +658,6 @@ export default function Agenda() {
               ` Showing the ${data.queue.length} biggest by value; the other ${
                 data.queueTotal - data.queue.length
               } wait for next week so this never becomes a wall.`}
-            {owner && ` ${queue.length} of this week’s ${data.queue.length} are ${owner}’s.`}
           </p>
           <div className="queue">
             {queue.map((q) => (
@@ -736,7 +713,7 @@ export default function Agenda() {
               </p>
             </Help>
           </div>
-          {pipelineCalls.filter((c) => mine(c.deal!)).map((c, i) => (
+          {pipelineCalls.map((c, i) => (
             <div className="item" key={i}>
               <div className="item-head">
                 <div>
@@ -764,10 +741,7 @@ export default function Agenda() {
               )}
             </div>
           ))}
-          {pipelineCalls.length > 0 && pipelineCalls.filter((c) => mine(c.deal!)).length === 0 && (
-            <p className="note">No pipeline calls for {owner} in the next 7 days.</p>
-          )}
-          {!owner && otherCalls.length > 0 && (
+          {otherCalls.length > 0 && (
             <>
               <div className="group-label">Also in the diary · not pipeline</div>
               <div className="queue">

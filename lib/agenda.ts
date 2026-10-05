@@ -160,8 +160,6 @@ export interface Agenda {
   /** Where the pipeline and the talking are, by country. */
   markets: AgendaMarket[];
   marketWindowDays: number;
-  /** Deal owners with open deals, for the per-person view. */
-  owners: string[];
   /** This week's research signals, deal-linked where the club is in play. */
   signals: MarketSignal[];
   cachedAt: string;
@@ -588,10 +586,6 @@ export async function buildAgenda(): Promise<Agenda> {
         b.calls + b.conversations - (a.calls + a.conversations)
     ),
     marketWindowDays: metrics?.marketWindowDays ?? 28,
-    // Trimmed: Attio holds "Danny " with a trailing space.
-    owners: [
-      ...new Set(open.map((d) => d.ownerName?.trim()).filter((n): n is string => Boolean(n))),
-    ].sort(),
     // This week's research, cleaned of Slack markup and deal-linked where the
     // club is in play. Fresh only: signals refresh each Monday, and stale ones
     // reading as news is the exact failure the old section was deleted for.

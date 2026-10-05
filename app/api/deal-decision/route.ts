@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
-import { getAttioSnapshot, saveStallNote, updateDealStage } from "@/lib/attio";
+import { getAttioSnapshot, addDealNote, updateDealStage } from "@/lib/attio";
+import { decisionTitle, DECISION_NO_REASON } from "@/lib/attio-notes";
+import { invalidateNotesOnly } from "@/lib/deal-context";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +10,11 @@ export const dynamic = "force-dynamic";
  * Records a decision taken in the weekly meeting.
  *
  * This is the point of the agenda: the one moment each week when everyone is
- * already thinking about a deal, so capturing the outcome costs nothing. It
- * writes to `stall_notes` — the field this app owns — rather than Attio's own
- * `note`, which carries the team's own words and is not ours to overwrite.
+ * already thinking about a deal, so capturing the outcome costs nothing. Each
+ * decision is saved as its own note on the deal ("Pulse decision: Parked
+ * 2026-10-05 — revisit 2026-10-19"), so the team sees it in the deal's
+ * timeline and Attio's `note` field, which carries their own words, is never
+ * touched.
  *
  * "dead" also moves the deal to Lost, which is a real stage change and is why
  * the UI confirms before calling this.
@@ -60,22 +64,22 @@ export async function POST(req: NextRequest) {
     // the existing `note` field carries undated verdicts and that ambiguity is
     // exactly what made them hard to trust.
     const today = new Date().toISOString().slice(0, 10);
-    const parts = [`${LABELS[decision]} ${today}`];
-    if (decision === "park" && wakeOn) parts.push(`revisit ${wakeOn}`);
-    if (reason) parts.push(reason);
+    const head = [`${LABELS[decision]} ${today}`];
+    if (decision === "park" && wakeOn) head.push(`revisit ${wakeOn}`);
+    const title = decisionTitle(head.join(" — "));
 
-    // Existing notes are kept: the history of decisions is the record of how
-    // long a deal has been almost-dead.
-    const previous = deal.stallNotes?.trim();
-    const line = parts.join(" — ");
-    await saveStallNote(dealId, previous ? `${line}\n${previous}` : line);
+    // One note per decision, so the history of decisions — the record of how
+    // long a deal has been almost-dead — builds up in the deal's timeline.
+    await addDealNote(dealId, title, reason || DECISION_NO_REASON);
+    const line = [...head, ...(reason ? [reason] : [])].join(" — ");
 
     if (decision === "dead" && deal.stage !== "Lost") {
       await updateDealStage(dealId, "Lost");
     }
 
-    // Drop the cached agenda, or reopening the page would show the deal still
-    // waiting on a decision that was just taken.
+    // Drop the cached notes and agenda, or reopening the page would show the
+    // deal still waiting on a decision that was just taken.
+    invalidateNotesOnly();
     revalidateTag("agenda");
 
     return NextResponse.json({ ok: true, decision, recorded: line });

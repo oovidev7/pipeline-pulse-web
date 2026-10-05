@@ -25,7 +25,7 @@ import { rankDeals, scoreDeal, RiskFactor } from "./risk";
 import { RISK_ALERT_THRESHOLD } from "./alerts";
 import { CLOSED_STAGES, DealRecord, StageMove } from "./types";
 import { DealVisibility } from "./visibility";
-import { AttioNote } from "./attio-notes";
+import { AttioNote, decisionLine } from "./attio-notes";
 import { cleanSlackText, cleanSlackUrl } from "./slack-text";
 import { readHiddenCounterparts } from "./hidden";
 
@@ -228,15 +228,14 @@ const PARK_DEFAULT_DAYS = 14;
 const STILL_LIVE_DAYS = 7;
 
 /**
- * Reads the most recent meeting decision from `stall_notes` (the decision
- * endpoint writes them dated, newest first) and returns when the deal should
+ * Reads the most recent meeting decision (the decision endpoint saves each one
+ * as a dated note on the deal) and returns when the deal should
  * come back. Without this, parking a long-quiet deal is self-defeating: the
  * "Parked" verdict itself trips the tension rule and the deal reappears on
  * the very next build.
  */
-function suppressedUntil(stallNotes: string | null): number | null {
-  const m = stallNotes
-    ?.split("\n")[0]
+function suppressedUntil(decision: string | null): number | null {
+  const m = decision
     ?.match(/^(Still live|Parked|Marked lost) (\d{4}-\d{2}-\d{2})(?: — revisit (\d{4}-\d{2}-\d{2}))?/);
   if (!m) return null;
   const decidedAt = new Date(m[2]).getTime();
@@ -289,7 +288,7 @@ function findTension(deal: DealRecord, vis: DealVisibility): string | null {
  * agenda under the new labels — which is how "last week" once rendered with
  * the in-progress week's zeros.
  */
-const AGENDA_CACHE_VERSION = "v16";
+const AGENDA_CACHE_VERSION = "v17";
 
 export const getAgenda = unstable_cache(
   () => buildAgenda(),
@@ -379,7 +378,8 @@ export async function buildAgenda(): Promise<Agenda> {
     if (!signals || signals.visibility.state === "dark") continue;
 
     // The room already decided this one recently — honour it.
-    const until = suppressedUntil(s.deal.stallNotes);
+    const latest = signals.notes.decisions?.[0];
+    const until = suppressedUntil(latest ? decisionLine(latest) : null);
     if (until !== null && now < until) continue;
 
     const tension = findTension(s.deal, signals.visibility);

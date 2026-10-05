@@ -147,6 +147,7 @@ export async function getDealContext(
     const cal = calendarFor(contacts);
     const dealNotes = byDeal.get(deal.id) ?? {
       all: [],
+      decisions: [],
       lastConversation: null,
       channels: [],
     };
@@ -169,6 +170,15 @@ export async function getDealContext(
     });
   }
   return out;
+}
+
+/**
+ * Drops only the notes cache, after the app itself writes a note. Cheaper than
+ * `invalidateNotesCache`, which also refetches every meeting in the workspace.
+ */
+export function invalidateNotesOnly(): void {
+  notesStore.invalidate();
+  try { revalidateTag("attio-notes"); } catch { /* outside a request scope; ignore */ }
 }
 
 /** Clears the notes cache so the next read reflects a write. */

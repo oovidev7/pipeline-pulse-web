@@ -12,6 +12,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { unstable_cache } from "next/cache";
 import { attioFetch, getAttioSnapshot } from "./attio";
 import { getDealContext, DealSignals } from "./deal-context";
+import { decisionLine } from "./attio-notes";
 import { getSlackData } from "./slack-data";
 import { CLOSED_STAGES, DealRecord } from "./types";
 
@@ -191,7 +192,7 @@ export async function dealIntel(
     `Source: ${deal.source ?? "not recorded"}`,
     `Expected close date: ${closeDate ?? "not set"}`,
     `Standing note on the deal: ${deal.dealNote?.trim() || "none"}`,
-    `Team's stall/decision notes: ${deal.stallNotes?.trim() || "none"}`,
+    `Weekly-meeting decisions, newest first: ${signals?.notes.decisions?.length ? signals.notes.decisions.slice(0, 5).map(decisionLine).join("; ") : "none"}`,
     `Activity: ${signals?.visibility.summary ?? "unknown"}`,
     "",
     `Upcoming meetings: ${upcoming.length ? upcoming.map((m) => `${day(m.startsAt)} "${m.title}"`).join("; ") : "none booked"}`,

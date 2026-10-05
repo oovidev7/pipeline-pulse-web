@@ -12,7 +12,7 @@
 // and asking it is also how the answer gets captured.
 
 import { DealRecord } from "./types";
-import { DealNotes, NoteChannel } from "./attio-notes";
+import { DealNotes, NoteChannel, decisionLine } from "./attio-notes";
 
 export type Channel = NoteChannel | "calendar";
 
@@ -36,6 +36,8 @@ export interface DealVisibility {
   channels: Channel[];
   /** A future meeting, which means alive regardless of silence elsewhere. */
   nextMeetingAt: string | null;
+  /** The most recent call already held, from the calendar or Attio's meetings. */
+  lastCallAt: string | null;
   /** The standing human verdict, when one is recorded on the deal. */
   verdict: string | null;
   /** One plain sentence, honest about its own limits. */
@@ -84,7 +86,6 @@ export function computeVisibility(
     { at: inputs.gmailLastContact ?? null, channel: "email" },
     { at: inputs.lastCalendar ?? null, channel: "calendar" },
     { at: inputs.lastMeeting ?? null, channel: "meeting" },
-    { at: deal.lastWhatsappTouch, channel: "whatsapp" },
   ];
 
   // Notes carry their own channel, and are the only evidence of the LinkedIn
@@ -109,12 +110,18 @@ export function computeVisibility(
     [deal.nextCall, inputs.nextCalendar ?? null, inputs.nextMeeting ?? null]
       .filter(isFuture)
       .sort()[0] ?? null;
+  const lastCallAt =
+    [inputs.lastCalendar ?? null, inputs.lastMeeting ?? null]
+      .filter((at): at is string => Boolean(at) && !isFuture(at))
+      .sort()
+      .pop() ?? null;
 
-  // `note` is Attio's free-text verdict field; `stallNotes` is ours. Either
-  // means a human has said where this stands. Neither carries a timestamp, so
-  // an explanation is treated as standing until contradicted — which is why
-  // the digest asks whether it still holds rather than assuming it does.
-  const verdict = deal.dealNote?.trim() || deal.stallNotes?.trim() || null;
+  // `note` is Attio's free-text verdict field; a weekly-meeting decision is
+  // ours. Either means a human has said where this stands. The note carries no
+  // timestamp, so an explanation is treated as standing until contradicted —
+  // which is why the digest asks whether it still holds rather than assuming it does.
+  const decision = inputs.notes?.decisions?.[0];
+  const verdict = deal.dealNote?.trim() || (decision ? decisionLine(decision) : null);
 
   const recentlyActive =
     daysSinceCapture !== null && daysSinceCapture <= QUIET_DAYS;
@@ -133,6 +140,7 @@ export function computeVisibility(
     daysSinceCapture,
     channels,
     nextMeetingAt,
+    lastCallAt,
     verdict,
     summary: describe(state, daysSinceCapture, channels, nextMeetingAt, verdict),
   };

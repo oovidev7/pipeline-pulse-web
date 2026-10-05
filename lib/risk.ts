@@ -72,6 +72,9 @@ function daysSince(iso: string | null | undefined): number | null {
  */
 const ESCALATION_CAP = 10;
 
+/** Days after a call before having nothing booked counts as momentum lost. */
+const CALL_GRACE_DAYS = 14;
+
 function persisted(daysOverdue: number | null): number {
   if (daysOverdue === null || daysOverdue <= 0) return 0;
   return Math.min(ESCALATION_CAP, Math.floor(daysOverdue / 7));
@@ -107,15 +110,22 @@ export function scoreDeal(deal: DealRecord, inputs: RiskInputs): ScoredDeal {
     }
   }
 
-  // Calls. A lapsed next_call is worse than none: momentum existed and was lost.
-  const nextCallDays = deal.nextCall ? daysSince(deal.nextCall) : null;
-  const nextCallInPast =
-    deal.nextCall !== null && new Date(deal.nextCall) < new Date();
+  // Calls, from the calendar. A call held with nothing booked after it is
+  // worse than none: momentum existed and was lost. That used to key off the
+  // deal's `next_call` field, which nobody kept current (14 of its 15 dates
+  // were in the past), so deals with a call on the books read as lapsed. Now
+  // it is the last call actually held, after a fortnight's grace to book the
+  // next one, and its age is the escalation clock.
   if (!inputs.hasUpcomingCall) {
-    // The lapse is overdue from the moment it passes, so its own age is the
-    // escalation clock — a call missed in June outranks one missed on Friday.
-    if (nextCallInPast) add(`call lapsed ${nextCallDays}d ago`, 20 + persisted(nextCallDays));
-    else if (!deal.nextCall) add("no call booked", 12);
+    const sinceCall = daysSince(inputs.visibility?.lastCallAt);
+    if (sinceCall !== null && sinceCall > CALL_GRACE_DAYS) {
+      add(
+        `last call ${sinceCall}d ago, none booked`,
+        20 + persisted(sinceCall - CALL_GRACE_DAYS)
+      );
+    } else {
+      add("no call booked", 12);
+    }
   }
 
   // Momentum, measured across every channel we can see — not just email.

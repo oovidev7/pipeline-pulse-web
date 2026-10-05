@@ -24,8 +24,10 @@ const STATE_TAG = "PULSE_SCORES";
  *   2 — 2026-08-24, weights escalate with time (see `persisted` in ./risk)
  *   3 — 2026-08-24, quiet measured across every visible channel rather than
  *       email alone, and suppressed entirely on deals we cannot see
+ *   4 — 2026-10-05, calls read from the calendar instead of the retired
+ *       `next_call` field; "call lapsed" became "last call Nd ago, none booked"
  */
-const SCALE = 3;
+const SCALE = 4;
 
 export interface ScoreState {
   run: string;

@@ -42,12 +42,36 @@ export function getConfiguredGoogleAccounts(): GoogleAccount[] {
     .sort();
   const order = ["GOOGLE_REFRESH_TOKEN_OGI", "GOOGLE_REFRESH_TOKEN", "GOOGLE_REFRESH_TOKEN_DANNY", ...others];
   for (const k of order) {
-    const refreshToken = process.env[k];
+    // Trimmed: a value pasted into Vercel often carries a trailing newline,
+    // which Google rejects as a different token.
+    const refreshToken = process.env[k]?.trim();
     if (!refreshToken || accounts.some((a) => a.refreshToken === refreshToken)) continue;
     const key = k === "GOOGLE_REFRESH_TOKEN" ? "default" : k.slice("GOOGLE_REFRESH_TOKEN_".length).toLowerCase();
     accounts.push({ key, refreshToken });
   }
   return accounts;
+}
+
+/** A failed token refresh, carrying Google's error code (invalid_client, invalid_grant…). */
+export class GoogleAuthError extends Error {
+  constructor(public code: string, message: string) {
+    super(message);
+    this.name = "GoogleAuthError";
+  }
+}
+
+/** Google's error, in words someone fixing Vercel settings can act on. */
+export function explainGoogleError(err: unknown): string {
+  const code = err instanceof GoogleAuthError ? err.code : "";
+  const msg = String((err as any)?.message ?? "");
+  if (code === "invalid_client") return "Google rejected the Client ID/Secret — check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel";
+  if (code === "unauthorized_client") return "this token was made with a different Client ID than the one in Vercel";
+  if (code === "invalid_grant") return "the token is wrong, revoked, or was made with a different Client ID/Secret";
+  if (/not set/.test(msg)) return "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET aren't set";
+  if (/Gmail 403/.test(msg)) return "Gmail refused access — the Gmail API isn't enabled in the Google project, or the token lacks the gmail.readonly scope";
+  if (/Gmail 401/.test(msg)) return "Gmail rejected the access token";
+  if (/timed out/.test(msg)) return "Gmail timed out";
+  return code ? `Google said ${code}` : "unknown error — see the Vercel logs";
 }
 
 /** Exchanges (or reuses a cached) refresh token for a short-lived access token. */
@@ -57,8 +81,8 @@ export async function getAccessToken(account: GoogleAccount): Promise<string> {
     return cached.accessToken;
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
     throw new Error("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set");
   }
@@ -77,7 +101,8 @@ export async function getAccessToken(account: GoogleAccount): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Google token refresh failed for ${account.key}: ${res.status} ${text}`);
+    const code = text.match(/"error"\s*:\s*"([a-z_]+)"/i)?.[1] ?? `http_${res.status}`;
+    throw new GoogleAuthError(code, `Google token refresh failed for ${account.key}: ${res.status} ${text}`);
   }
 
   const body = await res.json();

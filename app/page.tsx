@@ -729,11 +729,13 @@ export default function Agenda() {
             </p>
           ) : null}
           {conv.emailSource.failed.length > 0 && (
-            <p className="note">
-              <b>Couldn’t read {conv.emailSource.failed.join(" or ")}</b> — that Google token no
-              longer works (usually issued under an earlier OAuth client, or expired). Regenerate
-              it in Vercel and redeploy; until then that inbox isn’t counted.
-            </p>
+            <div className="note">
+              <b>Couldn’t read {conv.emailSource.failed.length === 1 ? "this inbox" : "these inboxes"}</b> —
+              until fixed, {conv.emailSource.failed.length === 1 ? "it isn’t" : "they aren’t"} counted:
+              {conv.emailSource.failed.map((f, i) => (
+                <div key={i} className="muted" style={{ marginTop: 2 }}>· {f}</div>
+              ))}
+            </div>
           )}
 
           <div className="group-label">New conversations by source · last 4 weeks</div>

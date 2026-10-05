@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgenda } from "@/lib/agenda";
+import { getClosePlans } from "@/lib/close-plans";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,11 +27,18 @@ export async function GET(req: NextRequest) {
   const started = Date.now();
   try {
     const agenda = await getAgenda();
+    // Close plans only call the model when a deal's intel has moved, so
+    // warming them hourly is cheap and keeps the page from waiting on one.
+    const plans = await getClosePlans().catch((err) => {
+      console.error("[/api/warm] close plans", err);
+      return {};
+    });
     return NextResponse.json({
       warmed: true,
       ms: Date.now() - started,
       decisions: agenda.decisions.length,
       queue: agenda.queueTotal,
+      closePlans: Object.keys(plans).length,
     });
   } catch (err: any) {
     console.error("[/api/warm] error", err);

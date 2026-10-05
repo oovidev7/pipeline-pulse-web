@@ -33,6 +33,8 @@ export interface AttioMeeting {
   /** Company records Attio linked, in order. */
   companyIds: string[];
   externalEmails: string[];
+  /** Our side of the invite, to know whose call it is. Optional: older cached rows lack it. */
+  internalEmails?: string[];
   kind: MeetingKind;
   /** Deal this meeting belongs to, resolved via the linked company. */
   dealId: string | null;
@@ -107,6 +109,7 @@ export async function fetchMeetings(): Promise<AttioMeeting[]> {
         startsAt,
         companyIds,
         externalEmails,
+        internalEmails: emails.filter((e) => internal.test(e)),
         // Refined to client/ecosystem once deals are known; see attachDeals.
         kind: externalEmails.length === 0 ? "internal" : companyIds.length === 0 ? "unmatched" : "ecosystem",
         dealId: null,

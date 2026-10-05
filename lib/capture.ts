@@ -20,6 +20,7 @@ import { getMeetings } from "./deal-context";
 import { fetchNotes } from "./attio-notes";
 import { AttioMeeting } from "./attio-meetings";
 import { readHiddenCounterparts } from "./hidden";
+import { createAutoDeals } from "./auto-deals";
 
 /** Wait this long after a call ends before asking — Granola gets first go. */
 const MIN_AGE_HOURS = 3;
@@ -75,6 +76,8 @@ export interface CaptureRunResult {
   replies: { club: string; savedNote: boolean; namedContact: string | null }[];
   proposed: { company: string }[];
   created: { deal: string }[];
+  /** Club deals created without asking — a club that is talking to us is pipeline. */
+  autoCreated: { deal: string; stage: string; reason: string }[];
   skipped: { club: string; reason: string }[];
   errors: string[];
 }
@@ -502,6 +505,7 @@ async function postProposals(
     snapshot.deals.map((d) => d.associatedCompanyId).filter(Boolean) as string[]
   );
   const companyName = new Map(snapshot.companies.map((c) => [c.id, c.name]));
+  const clubIds = new Set(snapshot.companies.filter((c) => c.league).map((c) => c.id));
 
   const now = new Date().toISOString();
   const weekAhead = new Date(Date.now() + 7 * DAY_MS).toISOString();
@@ -512,6 +516,9 @@ async function postProposals(
     if (m.kind !== "ecosystem" || m.startsAt <= now || m.startsAt > weekAhead) continue;
     const companyId = m.companyIds.find((c) => companyName.has(c) && !hasDeal.has(c));
     if (!companyId || state.proposals[companyId]) continue;
+    // Clubs (a League is set) get their deal created outright by
+    // createAutoDeals; the offer is for everyone else.
+    if (clubIds.has(companyId)) continue;
     // A counterpart someone dismissed from Coming up is not a prospect —
     // proposing a deal for them would be the same noise through another door.
     if (hiddenCompanies.has(companyId)) continue;
@@ -567,6 +574,15 @@ async function settleProposal(
   if (!wantsCreate) return null;
 
   const dealName = proposedDealName(proposal.companyName);
+  // Deal owner is required in Attio: whoever runs most of the open pipeline.
+  const snapshot = await getAttioSnapshot();
+  const counts = new Map<string, number>();
+  for (const d of snapshot.deals) {
+    if (d.ownerId && d.stage !== "Won 🎉" && d.stage !== "Lost") {
+      counts.set(d.ownerId, (counts.get(d.ownerId) ?? 0) + 1);
+    }
+  }
+  const ownerId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   await attioFetch("/objects/deals/records", {
     method: "POST",
     body: JSON.stringify({
@@ -574,6 +590,9 @@ async function settleProposal(
         values: {
           name: dealName,
           stage: "Demo / discovery",
+          ...(ownerId && {
+            owner: [{ referenced_actor_type: "workspace-member", referenced_actor_id: ownerId }],
+          }),
           associated_company: [
             { target_object: "companies", target_record_id: proposal.companyId },
           ],
@@ -596,7 +615,7 @@ async function settleProposal(
 /** One capture run: harvest replies first, then post new asks, then persist. */
 export async function runCapture(): Promise<CaptureRunResult> {
   const result: CaptureRunResult = {
-    asked: [], replies: [], proposed: [], created: [], skipped: [], errors: [],
+    asked: [], replies: [], proposed: [], created: [], autoCreated: [], skipped: [], errors: [],
   };
   const state = await readCaptureState();
 
@@ -620,6 +639,31 @@ export async function runCapture(): Promise<CaptureRunResult> {
   }
 
   await postAsks(state, result);
+
+  // Clubs talking to us become deals before proposals run, so a club is
+  // never both created and offered.
+  try {
+    const auto = await createAutoDeals();
+    result.errors.push(...auto.errors.map((e) => `auto-deal ${e}`));
+    for (const c of auto.created) {
+      result.autoCreated.push({ deal: c.dealName, stage: c.stage, reason: c.reason });
+      if (channel) {
+        await slack("chat.postMessage", {
+          channel,
+          text:
+            `:new: Added *${c.dealName}* in ${c.stage} (${c.league}) for ${c.ownerName ?? "the team"} — ${c.reason}. ` +
+            `Not a sales conversation? Mark it Lost in Attio.`,
+          unfurl_links: false,
+        }).catch((err: any) => result.errors.push(`auto-deal slack ${c.dealName}: ${err.message}`));
+      }
+    }
+    if (auto.deferred.length) {
+      result.errors.push(`auto-deal: ${auto.deferred.length} more left for the next run`);
+    }
+  } catch (err: any) {
+    result.errors.push(`auto-deals: ${err.message}`);
+  }
+
   await postProposals(state, result).catch((err) =>
     result.errors.push(`proposals: ${err.message}`)
   );

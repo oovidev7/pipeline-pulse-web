@@ -193,6 +193,8 @@ export interface CompanyRecord {
   countryCode: string | null;
   /** Primary email domain. Its absence blocks Attio's enrichment entirely. */
   domain: string | null;
+  /** The League select — set only on clubs and federations, so it doubles as "is a club". */
+  league: string | null;
 }
 
 /**
@@ -207,6 +209,7 @@ function normalizeCompanies(records: any[]): CompanyRecord[] {
       id: record?.id?.record_id,
       name: getAttrString(record, "name") || "Unknown",
       countryCode: getAttrValue(record, "primary_location")?.country_code ?? null,
+      league: getAttrValue(record, "league_7")?.option?.title ?? null,
       domain:
         Array.isArray(domains) && domains.length > 0
           ? (domains[0]?.domain ?? domains[0]?.root_domain ?? null)
